@@ -89,12 +89,13 @@
 
 <!-- Create Environment Modal -->
 <div id="createModal" class="modal">
-    <div class="modal-content">
+    <div class="modal-content modal-form-wide">
         <div class="modal-header">
             <h3 class="modal-title">Create Environment</h3>
             <button class="icon-btn" onclick="closeCreateModal()">✕</button>
         </div>
         <form id="createForm" onsubmit="createEnv(event)">
+            <div class="modal-body">
             <!-- Template Selection -->
             <div class="form-group">
                 <label for="templateSelect">Use Template (Optional)</label>
@@ -106,60 +107,70 @@
                 </small>
             </div>
 
-            <div id="manualConfig">
-            <div class="form-group">
-                <label for="envName">Environment Name</label>
-                <input type="text" id="envName" name="name" required pattern="[a-z0-9-]+" placeholder="pr-123">
-            </div>
-            <div class="form-group">
-                <label for="ttl">TTL</label>
-                <input type="text" id="ttl" name="ttl" value="1h" placeholder="1h, 30m, 24h">
+            <div id="manualConfig" class="create-form-body">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="envName">Environment Name *</label>
+                    <input type="text" id="envName" name="name" required pattern="[a-z0-9-]+" placeholder="pr-123">
+                </div>
+                <div class="form-group">
+                    <label for="ttl">TTL</label>
+                    <input type="text" id="ttl" name="ttl" value="1h" placeholder="1h, 30m, 24h">
+                </div>
             </div>
 
-            <details id="helmDetails" open>
-                <summary style="cursor: pointer; font-weight: 500; margin-bottom: 12px; color: var(--accent-blue);">
-                    🎯 Helm Configuration
-                </summary>
-            <div class="form-group">
-                <label for="helmRepo">Helm Repository</label>
-                <input type="text" id="helmRepo" name="helmRepo" placeholder="https://charts.example.com">
-            </div>
-            <div class="form-group">
-                <label for="helmChart">Helm Chart</label>
-                <input type="text" id="helmChart" name="helmChart" placeholder="my-app">
-            </div>
-            <div class="form-group">
-                <label for="helmVersion">Chart Version</label>
-                <input type="text" id="helmVersion" name="helmVersion" placeholder="1.0.0">
-            </div>
+            <details id="helmDetails">
+                <summary class="details-summary">🎯 Helm Configuration</summary>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="helmRepo">Repository</label>
+                        <input type="text" id="helmRepo" name="helmRepo" placeholder="https://charts.example.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="helmChart">Chart</label>
+                        <input type="text" id="helmChart" name="helmChart" placeholder="my-app">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="helmVersion">Chart Version</label>
+                    <input type="text" id="helmVersion" name="helmVersion" placeholder="1.0.0">
+                </div>
             </details>
 
-            <details id="gatewayDetails" open>
-                <summary style="cursor: pointer; font-weight: 500; margin-bottom: 12px; color: var(--accent-blue);">
-                    🌐 Gateway Configuration
-                </summary>
-            <div class="form-group">
-                <label for="gatewayName">Gateway Name</label>
-                <input type="text" id="gatewayName" name="gatewayName" value="main-gateway" placeholder="main-gateway">
-            </div>
-            <div class="form-group">
-                <label for="gatewayNamespace">Gateway Namespace</label>
-                <input type="text" id="gatewayNamespace" name="gatewayNamespace" value="default" placeholder="default">
-            </div>
-            <div class="form-group">
-                <label for="serviceName">Service Name</label>
-                <input type="text" id="serviceName" name="serviceName" placeholder="my-app">
-            </div>
-            <div class="form-group">
-                <label for="servicePort">Service Port</label>
-                <input type="number" id="servicePort" name="servicePort" value="80" min="1" max="65535">
-            </div>
+            <details id="gatewayDetails" class="optional-section">
+                <summary class="details-summary">🌐 Gateway & networking</summary>
+                <small style="color: var(--text-secondary); font-size: 12px; margin-bottom: 12px; display: block;">Defaults: main-gateway, default ns. Expand only if you need different gateway or discovery.</small>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="gatewayName">Gateway Name</label>
+                        <input type="text" id="gatewayName" name="gatewayName" value="main-gateway" placeholder="main-gateway">
+                    </div>
+                    <div class="form-group">
+                        <label for="gatewayNamespace">Gateway Namespace</label>
+                        <input type="text" id="gatewayNamespace" name="gatewayNamespace" value="default" placeholder="default">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="discoveryPort">Discover by port</label>
+                        <input type="number" id="discoveryPort" name="discoveryPort" placeholder="optional" min="1" max="65535" title="Operator finds Service by this port">
+                    </div>
+                    <div class="form-group">
+                        <label for="serviceName">Service Name</label>
+                        <input type="text" id="serviceName" name="serviceName" placeholder="my-app">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="servicePort">Target Port</label>
+                    <input type="number" id="servicePort" name="servicePort" value="80" min="1" max="65535">
+                </div>
             </details>
             </div>
 
             <!-- Hidden field for selected template -->
             <input type="hidden" id="selectedTemplateId" name="templateId" value="">
             <input type="hidden" id="selectedTemplateNamespace" name="templateNamespace" value="">
+            </div>
 
             <div class="form-actions">
                 <button type="button" class="btn btn-secondary" onclick="closeCreateModal()">Cancel</button>
@@ -177,6 +188,7 @@
             <button class="icon-btn" onclick="closeExtendModal()">✕</button>
         </div>
         <form id="extendForm" onsubmit="extendTTL(event)">
+            <div class="modal-body">
             <input type="hidden" id="extendEnvName" name="envName">
             <div class="form-group">
                 <label for="extendDuration">Extend by</label>
@@ -189,6 +201,7 @@
                     <option value="24h">24 hours</option>
                 </select>
             </div>
+            </div>
             <div class="form-actions">
                 <button type="button" class="btn btn-secondary" onclick="closeExtendModal()">Cancel</button>
                 <button type="submit" class="btn btn-primary">Extend</button>
@@ -199,13 +212,14 @@
 
 <!-- Create Template Modal -->
 <div id="createTemplateModal" class="modal">
-    <div class="modal-content" style="max-width: 700px;">
+    <div class="modal-content modal-form-wide" style="max-width: 700px;">
         <div class="modal-header">
             <h3 class="modal-title">Create Template</h3>
             <button class="icon-btn" onclick="closeCreateTemplateModal()">✕</button>
         </div>
         <form id="createTemplateForm" onsubmit="createTemplate(event)">
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <div class="modal-body">
+            <div class="form-row">
                 <div class="form-group">
                     <label for="tplName">Template Name *</label>
                     <input type="text" id="tplName" name="name" required pattern="[a-z0-9-]+" placeholder="my-template">
@@ -241,7 +255,7 @@
             <h4 style="margin: 20px 0 12px; color: var(--accent-blue);">📦 Components</h4>
             <div id="componentsContainer">
                 <div class="component-row" data-index="0">
-                    <div style="display: grid; grid-template-columns: 1fr 2fr 1fr 1fr auto; gap: 12px; align-items: end; padding: 12px; background: var(--bg-tertiary); border-radius: 8px; margin-bottom: 8px;">
+                    <div class="component-main-row" style="display: grid; grid-template-columns: 1fr 2fr 1fr 1fr auto; gap: 12px; align-items: end; padding: 12px; background: var(--bg-tertiary); border-radius: 8px; margin-bottom: 8px;">
                         <div class="form-group" style="margin: 0;">
                             <label style="font-size: 11px;">Name *</label>
                             <input type="text" name="comp_name_0" required placeholder="nginx">
@@ -264,14 +278,14 @@
                             </label>
                         </div>
                     </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 12px 12px; background: var(--bg-tertiary); border-radius: 0 0 8px 8px; margin-top: -8px; margin-bottom: 12px;">
+                    <div class="comp-service-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 12px 12px; background: var(--bg-tertiary); border-radius: 0 0 8px 8px; margin-top: -8px; margin-bottom: 12px;">
                         <div class="form-group" style="margin: 0;">
-                            <label style="font-size: 11px;">Service Name</label>
-                            <input type="text" name="comp_service_0" placeholder="nginx">
+                            <label style="font-size: 11px;">Port</label>
+                            <input type="number" name="comp_port_0" value="80" min="1" max="65535">
                         </div>
                         <div class="form-group" style="margin: 0;">
-                            <label style="font-size: 11px;">Service Port</label>
-                            <input type="number" name="comp_port_0" value="80" min="1" max="65535">
+                            <label style="font-size: 11px;">Service Name <span style="font-weight: 400; opacity: 0.7;">(optional)</span></label>
+                            <input type="text" name="comp_service_0" placeholder="use port discovery if empty">
                         </div>
                     </div>
                 </div>
@@ -280,6 +294,7 @@
                 ➕ Add Component
             </button>
 
+            </div>
             <div class="form-actions">
                 <button type="button" class="btn btn-secondary" onclick="closeCreateTemplateModal()">Cancel</button>
                 <button type="submit" class="btn btn-primary">Create Template</button>
@@ -411,6 +426,8 @@
                 if (primary) {
                     document.getElementById('serviceName').value = primary.serviceName || primary.name;
                     document.getElementById('servicePort').value = primary.servicePort || 80;
+                    // Prefill discovery port so user can use port-based discovery (optional)
+                    document.getElementById('discoveryPort').value = primary.servicePort || '';
                 }
             }
         } else {
@@ -460,6 +477,10 @@
         const templateId = document.getElementById('selectedTemplateId').value;
         const templateNamespace = document.getElementById('selectedTemplateNamespace').value;
         
+        const useDiscovery = form.discoveryPort && form.discoveryPort.value && parseInt(form.discoveryPort.value) > 0;
+        const targetPort = parseInt(form.servicePort.value) || 80;
+        const discoveryPortNum = useDiscovery ? parseInt(form.discoveryPort.value) : null;
+
         let data = {
             metadata: {
                 name: envName,
@@ -471,12 +492,15 @@
                     name: form.gatewayName.value || 'main-gateway',
                     namespace: form.gatewayNamespace.value || 'default',
                     domainPrefix: envName,
-                    serviceName: form.serviceName.value,
-                    targetPort: parseInt(form.servicePort.value)
+                    serviceName: useDiscovery ? 'discovered' : (form.serviceName.value || 'my-app'),
+                    targetPort: useDiscovery ? discoveryPortNum : targetPort
                 }
             }
         };
-        
+        if (useDiscovery) {
+            data.spec.servicePort = discoveryPortNum;
+        }
+
         // If template selected, use templateRef
         if (templateId) {
             data.spec.templateRef = {
@@ -585,7 +609,7 @@
         
         const html = `
             <div class="component-row" data-index="${idx}">
-                <div style="display: grid; grid-template-columns: 1fr 2fr 1fr 1fr auto; gap: 12px; align-items: end; padding: 12px; background: var(--bg-tertiary); border-radius: 8px; margin-bottom: 8px;">
+                <div class="component-main-row" style="display: grid; grid-template-columns: 1fr 2fr 1fr 1fr auto; gap: 12px; align-items: end; padding: 12px; background: var(--bg-tertiary); border-radius: 8px; margin-bottom: 8px;">
                     <div class="form-group" style="margin: 0;">
                         <label style="font-size: 11px;">Name *</label>
                         <input type="text" name="comp_name_${idx}" required placeholder="redis">
@@ -609,14 +633,14 @@
                         <button type="button" class="icon-btn danger" onclick="removeComponent(${idx})" title="Remove">✕</button>
                     </div>
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 12px 12px; background: var(--bg-tertiary); border-radius: 0 0 8px 8px; margin-top: -8px; margin-bottom: 12px;">
+                <div class="comp-service-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 12px 12px; background: var(--bg-tertiary); border-radius: 0 0 8px 8px; margin-top: -8px; margin-bottom: 12px;">
                     <div class="form-group" style="margin: 0;">
-                        <label style="font-size: 11px;">Service Name</label>
-                        <input type="text" name="comp_service_${idx}" placeholder="redis-master">
+                        <label style="font-size: 11px;">Port</label>
+                        <input type="number" name="comp_port_${idx}" value="6379" min="1" max="65535">
                     </div>
                     <div class="form-group" style="margin: 0;">
-                        <label style="font-size: 11px;">Service Port</label>
-                        <input type="number" name="comp_port_${idx}" value="6379" min="1" max="65535">
+                        <label style="font-size: 11px;">Service Name <span style="font-weight: 400; opacity: 0.7;">(optional)</span></label>
+                        <input type="text" name="comp_service_${idx}" placeholder="use port discovery if empty">
                     </div>
                 </div>
             </div>
@@ -796,14 +820,18 @@
         .empty-state h3 { font-size: 18px; margin-bottom: 8px; color: var(--text-primary); }
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 1000; align-items: center; justify-content: center; }
         .modal.active { display: flex; }
-        .modal-content { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px; max-width: 500px; width: 100%; }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-content { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px; max-width: 500px; width: 100%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; }
+        .modal-form-wide { max-width: 560px; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-shrink: 0; }
         .modal-title { font-size: 18px; font-weight: 600; }
+        .modal-content form { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+        .modal-body { flex: 1; min-height: 0; overflow-y: auto; padding-right: 8px; }
         .form-group { margin-bottom: 16px; }
         .form-group label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 8px; }
         .form-group input, .form-group select { width: 100%; padding: 10px 12px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 14px; }
         .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--accent-blue); }
-        .form-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
+        .form-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-color); flex-shrink: 0; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         footer { text-align: center; padding: 24px; color: var(--text-secondary); font-size: 12px; }
         /* Tabs */
         .tabs { display: flex; gap: 8px; }
@@ -827,8 +855,22 @@
         .template-components ul { margin: 8px 0 0 16px; padding: 0; }
         .template-components li { margin: 4px 0; color: var(--text-secondary); }
         .template-actions { display: flex; justify-content: flex-end; }
-        details summary { list-style: none; }
+        details summary { list-style: none; cursor: pointer; }
         details summary::-webkit-details-marker { display: none; }
+        .details-summary { padding: 12px; background: var(--bg-tertiary); border-radius: 6px; margin-bottom: 12px; }
+        /* Responsive */
+        @media (max-width: 768px) {
+            .form-row { grid-template-columns: 1fr; }
+            .modal-content { max-height: 85vh; margin: 16px; padding: 16px; }
+            .component-main-row { grid-template-columns: 1fr !important; }
+            .comp-service-row { grid-template-columns: 1fr !important; }
+            .templates-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 480px) {
+            .container { padding: 12px; }
+            header { flex-direction: column; gap: 12px; }
+            nav { flex-wrap: wrap; justify-content: center; }
+        }
     </style>
 </head>
 <body>
