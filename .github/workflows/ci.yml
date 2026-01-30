@@ -54,7 +54,9 @@ jobs:
         run: go install gotest.tools/gotestsum@latest
 
       - name: Run tests
-        run: gotestsum --junitfile junit.xml -- -coverprofile=coverage.out $$(go list ./... | grep -v /e2e)
+        run: |
+          PACKAGES=$(go list ./... | grep -v /e2e)
+          gotestsum --junitfile junit.xml -- -coverprofile=coverage.out $PACKAGES
         env:
           GOFLAGS: -mod=mod
 

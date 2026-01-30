@@ -377,7 +377,9 @@ var _ = Describe("Manager", Ordered, func() {
 })
 
 // HelmChartNamespace is the namespace used when installing via Helm in e2e.
-const helmChartNamespace = "ephemeral-operator-system"
+// Use a different namespace than Manager (ephemeral-operator-system) to avoid
+// conflicts when both suites run (e.g. namespace Terminating).
+const helmChartNamespace = "ephemeral-operator-helm-system"
 
 // HelmReleaseName is the Helm release name used in e2e.
 const helmReleaseName = "ephemeral-operator"
@@ -461,8 +463,12 @@ var _ = Describe("Helm chart", Ordered, func() {
 			projectDir, err := utils.GetProjectDir()
 			Expect(err).NotTo(HaveOccurred())
 			samplePath := filepath.Join(projectDir, "config", "samples", "ephemeral_v1alpha1_environmenttemplate.yaml")
+			// Sample file references namespace ephemeral-system; ensure it exists
+			By("creating namespace ephemeral-system for sample")
+			cmd := exec.Command("kubectl", "create", "namespace", "ephemeral-system")
+			_, _ = utils.Run(cmd) // ignore error if already exists
 			By("applying EnvironmentTemplate sample")
-			cmd := exec.Command("kubectl", "apply", "-f", samplePath)
+			cmd = exec.Command("kubectl", "apply", "-f", samplePath)
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred(), "Failed to apply EnvironmentTemplate sample")
 			defer func() {
