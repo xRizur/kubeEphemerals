@@ -113,10 +113,39 @@ jobs:
         with:
           version: "v3.17.0"
 
-      - name: "Run e2e tests (same as old pipeline: make test-e2e)"
+      - name: Install Ginkgo CLI (for e2e JUnit report)
+        run: go install github.com/onsi/ginkgo/v2/ginkgo@v2.27.2
+
+      - name: Setup e2e (Kind cluster, manifests)
         run: |
           go mod tidy
-          make test-e2e
+          make setup-test-e2e
+          make manifests generate fmt vet
         env:
           CERT_MANAGER_INSTALL_SKIP: "true"
+          KIND_CLUSTER: "ephemeral-operator-test-e2e"
+
+      - name: Run e2e tests (Ginkgo with JUnit report)
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          ginkgo ./test/e2e --junit-report=junit-e2e.xml -- -tags=e2e -v -ginkgo.v
+        env:
+          CERT_MANAGER_INSTALL_SKIP: "true"
+          KIND_CLUSTER: "ephemeral-operator-test-e2e"
+
+      - name: Publish E2E Test Results (PR comment)
+        if: always() && github.event_name == 'pull_request'
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: junit-e2e.xml
+          check_name: E2E Test Results
+          comment_title: E2E Test Results
+          comment_mode: always
+          fail_on: test failures
+          report_individual_runs: false
+
+      - name: Cleanup Kind cluster
+        if: always()
+        run: make cleanup-test-e2e
+        env:
           KIND_CLUSTER: "ephemeral-operator-test-e2e"
