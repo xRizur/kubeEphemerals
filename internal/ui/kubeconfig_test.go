@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -177,6 +178,7 @@ func TestGetClusterInfoServerAndCA(t *testing.T) {
 	})
 
 	t.Run("returns error when cluster-info ConfigMap does not exist", func(t *testing.T) {
+		//nolint:staticcheck // SA1019 fake.NewSimpleClientset is the standard for unit tests without applyconfig
 		client := fake.NewSimpleClientset()
 		_, _, err := GetClusterInfoServerAndCA(ctx, client)
 		if err == nil {
@@ -200,6 +202,7 @@ func TestGetClusterInfoServerAndCA(t *testing.T) {
 				ClusterInfoKubeconfigKey: kubeconfigYAML,
 			},
 		}
+		//nolint:staticcheck // SA1019 fake.NewSimpleClientset is the standard for unit tests without applyconfig
 		client := fake.NewSimpleClientset(cm)
 		serverURL, caData, err := GetClusterInfoServerAndCA(ctx, client)
 		if err != nil {
@@ -221,6 +224,7 @@ func TestGetClusterInfoServerAndCA(t *testing.T) {
 			},
 			Data: map[string]string{},
 		}
+		//nolint:staticcheck // SA1019 fake.NewSimpleClientset is the standard for unit tests without applyconfig
 		client := fake.NewSimpleClientset(cm)
 		_, _, err := GetClusterInfoServerAndCA(ctx, client)
 		if err == nil {

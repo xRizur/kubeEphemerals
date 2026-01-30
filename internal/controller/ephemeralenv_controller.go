@@ -75,8 +75,8 @@ const (
 	RouteTypeAdmin = "admin"
 
 	// Developer kubeconfig RBAC: SA and Role names in each env namespace
-	DeveloperAccessSA     = "developer-access"
-	NSAdminRoleName       = "ns-admin"
+	DeveloperAccessSA          = "developer-access"
+	NSAdminRoleName            = "ns-admin"
 	DeveloperAccessBindingName = "developer-access-ns-admin"
 )
 
@@ -95,6 +95,43 @@ const (
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=referencegrants,verbs=get;list;watch;create;update;patch;delete
+
+// reconcileStepOnError sets status to Failed and returns (ctrl.Result{}, err) when err != nil.
+// Reduces cyclomatic complexity in Reconcile by centralizing the "ensure failed" handling.
+func (r *EphemeralEnvReconciler) reconcileStepOnError(ctx context.Context, ephemeralEnv *ephemeralv1alpha1.EphemeralEnv, err error, logMsg, statusMsg string) (ctrl.Result, error) {
+	if err == nil {
+		return ctrl.Result{}, nil
+	}
+	logger := logf.FromContext(ctx)
+	logger.Error(err, logMsg)
+	ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
+	if statusMsg != "" {
+		ephemeralEnv.Status.Message = statusMsg
+	}
+	if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
+		logger.Error(statusErr, "Failed to update status")
+	}
+	return ctrl.Result{}, err
+}
+
+// reconcileHelmFailed sets PhaseFailed and HelmDeployed condition, then returns (ctrl.Result{}, err).
+func (r *EphemeralEnvReconciler) reconcileHelmFailed(ctx context.Context, ephemeralEnv *ephemeralv1alpha1.EphemeralEnv, err error) (ctrl.Result, error) {
+	logger := logf.FromContext(ctx)
+	logger.Error(err, "Failed to ensure Helm release")
+	ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
+	ephemeralEnv.Status.Message = fmt.Sprintf("Failed to deploy Helm chart: %v", err)
+	meta.SetStatusCondition(&ephemeralEnv.Status.Conditions, metav1.Condition{
+		Type:               ephemeralv1alpha1.ConditionTypeHelmDeployed,
+		Status:             metav1.ConditionFalse,
+		Reason:             "HelmDeploymentFailed",
+		Message:            fmt.Sprintf("Helm deployment failed: %v", err),
+		LastTransitionTime: metav1.Now(),
+	})
+	if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
+		logger.Error(statusErr, "Failed to update status after Helm error")
+	}
+	return ctrl.Result{}, err
+}
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -152,46 +189,22 @@ func (r *EphemeralEnvReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// Step 7: Ensure namespace exists
 	if err := r.ensureNamespace(ctx, ephemeralEnv); err != nil {
-		logger.Error(err, "Failed to ensure namespace")
-		ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
-		ephemeralEnv.Status.Message = fmt.Sprintf("Failed to create namespace: %v", err)
-		if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
-			logger.Error(statusErr, "Failed to update status after namespace error")
-		}
-		return ctrl.Result{}, err
+		return r.reconcileStepOnError(ctx, ephemeralEnv, err, "Failed to ensure namespace", fmt.Sprintf("Failed to create namespace: %v", err))
 	}
 
 	// Step 7b: Ensure developer-access RBAC (SA, Role, RoleBinding) for kubeconfig self-service
 	if err := r.ensureDeveloperAccessRBAC(ctx, ephemeralEnv); err != nil {
-		logger.Error(err, "Failed to ensure developer-access RBAC")
-		ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
-		ephemeralEnv.Status.Message = fmt.Sprintf("Failed to create developer RBAC: %v", err)
-		if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
-			logger.Error(statusErr, "Failed to update status after RBAC error")
-		}
-		return ctrl.Result{}, err
+		return r.reconcileStepOnError(ctx, ephemeralEnv, err, "Failed to ensure developer-access RBAC", fmt.Sprintf("Failed to create developer RBAC: %v", err))
 	}
 
 	// Step 8: Ensure NetworkPolicy if isolation is enabled
 	if err := r.ensureNetworkPolicy(ctx, ephemeralEnv); err != nil {
-		logger.Error(err, "Failed to ensure NetworkPolicy")
-		ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
-		ephemeralEnv.Status.Message = fmt.Sprintf("Failed to create NetworkPolicy: %v", err)
-		if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
-			logger.Error(statusErr, "Failed to update status after NetworkPolicy error")
-		}
-		return ctrl.Result{}, err
+		return r.reconcileStepOnError(ctx, ephemeralEnv, err, "Failed to ensure NetworkPolicy", fmt.Sprintf("Failed to create NetworkPolicy: %v", err))
 	}
 
 	// Step 9: Ensure ReferenceGrant for cross-namespace routing
 	if err := r.ensureReferenceGrant(ctx, ephemeralEnv); err != nil {
-		logger.Error(err, "Failed to ensure ReferenceGrant")
-		ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
-		ephemeralEnv.Status.Message = fmt.Sprintf("Failed to create ReferenceGrant: %v", err)
-		if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
-			logger.Error(statusErr, "Failed to update status after ReferenceGrant error")
-		}
-		return ctrl.Result{}, err
+		return r.reconcileStepOnError(ctx, ephemeralEnv, err, "Failed to ensure ReferenceGrant", fmt.Sprintf("Failed to create ReferenceGrant: %v", err))
 	}
 
 	// Step 10-12: Handle Helm deployment and HTTPRoute creation
@@ -207,20 +220,7 @@ func (r *EphemeralEnvReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			components := r.resolveComponents(ctx, ephemeralEnv)
 			if len(components) > 0 {
 				if err := r.ensureHelmRelease(ctx, ephemeralEnv); err != nil {
-					logger.Error(err, "Failed to ensure Helm release")
-					ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
-					ephemeralEnv.Status.Message = fmt.Sprintf("Failed to deploy Helm chart: %v", err)
-					meta.SetStatusCondition(&ephemeralEnv.Status.Conditions, metav1.Condition{
-						Type:               ephemeralv1alpha1.ConditionTypeHelmDeployed,
-						Status:             metav1.ConditionFalse,
-						Reason:             "HelmDeploymentFailed",
-						Message:            fmt.Sprintf("Helm deployment failed: %v", err),
-						LastTransitionTime: metav1.Now(),
-					})
-					if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
-						logger.Error(statusErr, "Failed to update status after Helm error")
-					}
-					return ctrl.Result{}, err
+					return r.reconcileHelmFailed(ctx, ephemeralEnv, err)
 				}
 			}
 		}
@@ -243,13 +243,7 @@ func (r *EphemeralEnvReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	// Step 10c/10: Ensure HTTPRoute for Gateway API routing
 	if err := r.ensureHTTPRoute(ctx, ephemeralEnv, effectiveServiceName); err != nil {
-		logger.Error(err, "Failed to ensure HTTPRoute")
-		ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
-		ephemeralEnv.Status.Message = fmt.Sprintf("Failed to create HTTPRoute: %v", err)
-		if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
-			logger.Error(statusErr, "Failed to update status after HTTPRoute error")
-		}
-		return ctrl.Result{}, err
+		return r.reconcileStepOnError(ctx, ephemeralEnv, err, "Failed to ensure HTTPRoute", fmt.Sprintf("Failed to create HTTPRoute: %v", err))
 	}
 
 	// Step 11: Ensure Admin HTTPRoute for dashboard UI (admin.pr-123.domain.com -> Operator UI)
@@ -266,20 +260,7 @@ func (r *EphemeralEnvReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		components := r.resolveComponents(ctx, ephemeralEnv)
 		if len(components) > 0 {
 			if err := r.ensureHelmRelease(ctx, ephemeralEnv); err != nil {
-				logger.Error(err, "Failed to ensure Helm release")
-				ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
-				ephemeralEnv.Status.Message = fmt.Sprintf("Failed to deploy Helm chart: %v", err)
-				meta.SetStatusCondition(&ephemeralEnv.Status.Conditions, metav1.Condition{
-					Type:               ephemeralv1alpha1.ConditionTypeHelmDeployed,
-					Status:             metav1.ConditionFalse,
-					Reason:             "HelmDeploymentFailed",
-					Message:            fmt.Sprintf("Helm deployment failed: %v", err),
-					LastTransitionTime: metav1.Now(),
-				})
-				if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
-					logger.Error(statusErr, "Failed to update status after Helm error")
-				}
-				return ctrl.Result{}, err
+				return r.reconcileHelmFailed(ctx, ephemeralEnv, err)
 			}
 		}
 		// No helm/components: skip deploy (e.g. minimal env for kubeconfig self-service only)

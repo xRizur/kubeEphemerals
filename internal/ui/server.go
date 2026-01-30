@@ -395,12 +395,12 @@ func resolveKubeconfigServerURL(ctx context.Context, kubeClient kubernetes.Inter
 	}
 	if len(caData) == 0 && restConfig != nil {
 		caData = restConfig.CAData
-		if len(caData) == 0 && restConfig.TLSClientConfig.CAFile != "" {
-			caData, err = os.ReadFile(restConfig.TLSClientConfig.CAFile)
+		if len(caData) == 0 && restConfig.CAFile != "" {
+			caData, err = os.ReadFile(restConfig.CAFile)
 			if err != nil {
-				log.Error(err, "Failed to read CA file for kubeconfig", "path", restConfig.TLSClientConfig.CAFile)
+				log.Error(err, "Failed to read CA file for kubeconfig", "path", restConfig.CAFile)
 			} else {
-				log.Info("Using CA from file for kubeconfig", "path", restConfig.TLSClientConfig.CAFile)
+				log.Info("Using CA from file for kubeconfig", "path", restConfig.CAFile)
 			}
 		}
 	}
@@ -451,10 +451,7 @@ func (s *Server) handleKubeconfigByName(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Token expiration: match env TTL or default 12h
-	ttl := env.Spec.GetTTL()
-	if ttl > DefaultKubeconfigTokenExpiration {
-		ttl = DefaultKubeconfigTokenExpiration
-	}
+	ttl := min(env.Spec.GetTTL(), DefaultKubeconfigTokenExpiration)
 	expSec := int64(ttl.Seconds())
 
 	tokenReq := &authv1.TokenRequest{

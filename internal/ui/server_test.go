@@ -453,6 +453,7 @@ var _ = Describe("UI Server", func() {
 			ctx := context.Background()
 
 			It("uses restConfig.Host when cluster-info is missing and restConfig is set", func() {
+				//nolint:staticcheck // SA1019 fake.NewSimpleClientset is the standard for unit tests without applyconfig
 				kubeClient := k8sfake.NewSimpleClientset()
 				cfg := DefaultConfig()
 				cfg.RestConfig = &rest.Config{
@@ -468,6 +469,7 @@ var _ = Describe("UI Server", func() {
 			})
 
 			It("overrides with KubeconfigServerURL when set", func() {
+				//nolint:staticcheck // SA1019 fake.NewSimpleClientset is the standard for unit tests without applyconfig
 				kubeClient := k8sfake.NewSimpleClientset()
 				cfg := DefaultConfig()
 				cfg.RestConfig = &rest.Config{Host: "https://internal:6443"}
@@ -487,6 +489,7 @@ var _ = Describe("UI Server", func() {
 						"kubeconfig-server-url": "https://cluster.example.com:6443",
 					},
 				}
+				//nolint:staticcheck // SA1019 fake.NewSimpleClientset is the standard for unit tests without applyconfig
 				kubeClient := k8sfake.NewSimpleClientset(cm)
 				cfg := DefaultConfig()
 				cfg.RestConfig = &rest.Config{Host: "https://internal:6443"}
@@ -510,6 +513,7 @@ var _ = Describe("UI Server", func() {
 					},
 					Data: map[string]string{ClusterInfoKubeconfigKey: clusterInfoYAML},
 				}
+				//nolint:staticcheck // SA1019 fake.NewSimpleClientset is the standard for unit tests without applyconfig
 				kubeClient := k8sfake.NewSimpleClientset(clusterInfoCM)
 				cfg := DefaultConfig()
 				cfg.RestConfig = &rest.Config{Host: "https://rest:6443"}
@@ -520,6 +524,7 @@ var _ = Describe("UI Server", func() {
 			})
 
 			It("returns error when restConfig is nil and cluster-info is missing", func() {
+				//nolint:staticcheck // SA1019 fake.NewSimpleClientset is the standard for unit tests without applyconfig
 				kubeClient := k8sfake.NewSimpleClientset()
 				cfg := DefaultConfig()
 				cfg.RestConfig = nil
