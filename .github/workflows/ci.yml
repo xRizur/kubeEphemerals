@@ -1,11 +1,12 @@
 # CI Pipeline: Lint, Unit Tests (JUnit + PR comment), E2E on Kind
+# Na razie tylko PR; reszta jobów zakomentowana.
 name: CI
 
 on:
-  push:
-    branches: [main, '**']
   pull_request:
     branches: [main, '**']
+  # push:
+  #   branches: [main, '**']
 
 permissions:
   contents: read
@@ -50,21 +51,32 @@ jobs:
           ENVTEST_PATH=$(PATH=$(go env GOPATH)/bin:$PATH setup-envtest use 1.35 --bin-dir bin -p path)
           echo "KUBEBUILDER_ASSETS=$PWD/$ENVTEST_PATH" >> $GITHUB_ENV
 
-      - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@latest
+      - name: Install gotestsum and ginkgo CLI
+        run: |
+          go install gotest.tools/gotestsum@latest
+          go install github.com/onsi/ginkgo/v2/ginkgo@latest
 
-      - name: Run tests
+      # Run all tests once for coverage
+      - name: Run tests (coverage)
         run: |
           PACKAGES=$(go list ./... | grep -v /e2e)
-          gotestsum --junitfile junit.xml -- -coverprofile=coverage.out $PACKAGES
+          go test -coverprofile=coverage.out $PACKAGES
         env:
           GOFLAGS: -mod=mod
+
+      # JUnit: one entry per Ginkgo It (not per package) so PR comment shows real spec count
+      - name: Run tests (JUnit from Ginkgo)
+        run: ginkgo -r --junit-report=junit-ginkgo.xml --skip-package=e2e --no-color .
+
+      # JUnit for the two non-Ginkgo tests in internal/ui (not run by ginkgo)
+      - name: Run non-Ginkgo unit tests (JUnit)
+        run: gotestsum --junitfile junit-ui-extra.xml -- go test -run 'TestGenerateKubeconfigYAML|TestGetClusterInfoServerAndCA' ./internal/ui/
 
       - name: Publish Unit Test Results (PR comment)
         if: always() && github.event_name == 'pull_request'
         uses: EnricoMi/publish-unit-test-result-action@v2
         with:
-          files: junit.xml
+          files: junit-ginkgo.xml junit-ui-extra.xml
           check_name: Unit Test Results
           comment_title: Unit Test Results
           comment_mode: always
@@ -105,7 +117,9 @@ jobs:
           make manifests generate fmt vet
 
       - name: Run e2e tests (Manager + Helm chart)
-        run: gotestsum --junitfile junit-e2e.xml -- -tags=e2e -v -ginkgo.v ./test/e2e/
+        run: |
+          cd "${{ github.workspace }}"
+          gotestsum --junitfile junit-e2e.xml -- -tags=e2e -v -ginkgo.v ./test/e2e
         env:
           CERT_MANAGER_INSTALL_SKIP: "true"
           KIND_CLUSTER: "ephemeral-operator-test-e2e"
