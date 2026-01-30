@@ -483,8 +483,9 @@ var _ = Describe("Helm chart", Ordered, func() {
 				if err != nil {
 					return err
 				}
-				if !strings.Contains(out, "environmenttemplate") {
-					return fmt.Errorf("no EnvironmentTemplate found: %s", out)
+				// kubectl --no-headers returns "namespace   name   displayName"; no literal "environmenttemplate"
+				if strings.TrimSpace(out) == "" {
+					return fmt.Errorf("no EnvironmentTemplate listed yet (empty output)")
 				}
 				return nil
 			}).Should(Succeed())
