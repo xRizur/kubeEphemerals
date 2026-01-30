@@ -1,0 +1,14 @@
+apiVersion: v2
+name: ephemeral-operator
+description: Kubernetes operator for ephemeral environments (EphemeralEnv and EnvironmentTemplate CRDs).
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - kubernetes
+  - operator
+  - ephemeral
+  - environments
+maintainers:
+  - name: kubeEphemerals
+    url: https://github.com/maciekmm/kubeEphemerals

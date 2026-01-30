@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}
+  namespace: {{ include "ephemeral-operator.namespace" . }}
+  labels:
+    {{- include "ephemeral-operator.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "ephemeral-operator.selectorLabels" . | nindent 6 }}
+  replicas: {{ .Values.replicaCount }}
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+      labels:
+        {{- include "ephemeral-operator.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: {{ include "ephemeral-operator.serviceAccountName" . }}
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: manager
+          command:
+            - /manager
+          args:
+            - --health-probe-bind-address=:8081
+            {{- if .Values.config.leaderElect }}
+            - --leader-elect
+            {{- end }}
+            {{- if ne .Values.config.metricsBindAddress "0" }}
+            - --metrics-bind-address={{ .Values.config.metricsBindAddress }}
+            {{- end }}
+            - --ui-bind-address={{ .Values.config.uiBindAddress }}
+            - --ui-platform-domain={{ .Values.config.uiPlatformDomain }}
+            - --ui-base-domain={{ .Values.config.uiBaseDomain }}
+            {{- if .Values.config.operatorService }}
+            - --operator-service={{ .Values.config.operatorService }}
+            {{- end }}
+            {{- if .Values.config.operatorNamespace }}
+            - --operator-namespace={{ .Values.config.operatorNamespace }}
+            {{- else }}
+            - --operator-namespace={{ include "ephemeral-operator.namespace" . }}
+            {{- end }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: []
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - "ALL"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts: []
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- if .Values.config.externalApiUrl }}
+            - name: KUBECONFIG_SERVER_URL
+              value: {{ .Values.config.externalApiUrl | quote }}
+            {{- end }}
+            {{- if .Values.config.adminGroup }}
+            - name: ADMIN_GROUP
+              value: {{ .Values.config.adminGroup | quote }}
+            {{- end }}
+            - name: DEFAULT_TTL
+              value: {{ .Values.config.defaultTTL | default "24h" | quote }}
+      volumes: []

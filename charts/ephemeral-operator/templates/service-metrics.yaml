@@ -1,0 +1,17 @@
+{{- if and (ne .Values.config.metricsBindAddress "0") .Values.config.metricsBindAddress }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}-metrics
+  namespace: {{ include "ephemeral-operator.namespace" . }}
+  labels:
+    {{- include "ephemeral-operator.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: https
+      port: 8443
+      protocol: TCP
+      targetPort: 8443
+  selector:
+    {{- include "ephemeral-operator.selectorLabels" . | nindent 4 }}
+{{- end }}
