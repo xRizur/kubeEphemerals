@@ -38,7 +38,7 @@ func TestGenerateKubeconfigYAML(t *testing.T) {
 		namespace  string
 		envName    string
 		wantErr    bool
-		assertYAML  func(t *testing.T, yamlBytes []byte)
+		assertYAML func(t *testing.T, yamlBytes []byte)
 	}{
 		{
 			name:      "output contains token server and namespace",
