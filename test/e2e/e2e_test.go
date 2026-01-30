@@ -22,9 +22,12 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -264,6 +267,99 @@ var _ = Describe("Manager", Ordered, func() {
 				g.Expect(metricsOutput).To(ContainSubstring("< HTTP/1.1 200 OK"))
 			}
 			Eventually(verifyMetricsAvailable, 2*time.Minute).Should(Succeed())
+		})
+
+		It("should serve kubeconfig for environment (self-service kubeconfig)", func() {
+			const envName = "e2e-kubeconfig"
+			const envNamespace = "env-e2e-kubeconfig"
+			const uiPort = "8082"
+
+			By("ensuring controller pod name is set")
+			if controllerPodName == "" {
+				cmd := exec.Command("kubectl", "get", "pods", "-l", "control-plane=controller-manager",
+					"-n", namespace, "-o", "jsonpath={.items[0].metadata.name}")
+				podName, err := utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				controllerPodName = strings.TrimSpace(podName)
+				Expect(controllerPodName).NotTo(BeEmpty())
+			}
+
+			By("getting project dir for fixture path")
+			projectDir, err := utils.GetProjectDir()
+			Expect(err).NotTo(HaveOccurred())
+			fixturePath := filepath.Join(projectDir, "test", "e2e", "fixtures", "ephemeralenv_kubeconfig_e2e.yaml")
+
+			By("creating EphemeralEnv for kubeconfig test")
+			cmd := exec.Command("kubectl", "apply", "-f", fixturePath)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply EphemeralEnv fixture")
+
+			defer func() {
+				By("deleting EphemeralEnv after kubeconfig test")
+				cmd := exec.Command("kubectl", "delete", "-f", fixturePath, "--ignore-not-found", "--wait=false")
+				_, _ = utils.Run(cmd)
+			}()
+
+			By("waiting for env namespace to exist")
+			Eventually(func() error {
+				cmd := exec.Command("kubectl", "get", "namespace", envNamespace)
+				_, err := utils.Run(cmd)
+				return err
+			}, 2*time.Minute, time.Second).Should(Succeed())
+
+			By("waiting for developer-access ServiceAccount in env namespace")
+			Eventually(func() error {
+				cmd := exec.Command("kubectl", "get", "serviceaccount", "developer-access", "-n", envNamespace)
+				_, err := utils.Run(cmd)
+				return err
+			}, 1*time.Minute, time.Second).Should(Succeed())
+
+			By("starting port-forward to controller UI (8082)")
+			portForwardCmd := exec.Command("kubectl", "port-forward", "pod/"+controllerPodName, uiPort+":"+uiPort, "-n", namespace)
+			err = portForwardCmd.Start()
+			Expect(err).NotTo(HaveOccurred(), "Failed to start port-forward")
+			defer func() {
+				if portForwardCmd.Process != nil {
+					_ = portForwardCmd.Process.Kill()
+				}
+			}()
+
+			By("waiting for UI port to be reachable")
+			Eventually(func() error {
+				resp, err := http.Get("http://127.0.0.1:" + uiPort + "/api/envs")
+				if err != nil {
+					return err
+				}
+				_ = resp.Body.Close()
+				return nil
+			}, 30*time.Second, time.Second).Should(Succeed())
+
+			By("requesting kubeconfig for environment")
+			var kubeconfigResp *http.Response
+			Eventually(func() error {
+				kubeconfigResp, err = http.Get("http://127.0.0.1:" + uiPort + "/api/envs/" + envName + "/kubeconfig")
+				if err != nil {
+					return err
+				}
+				if kubeconfigResp.StatusCode != http.StatusOK {
+					_ = kubeconfigResp.Body.Close()
+					return fmt.Errorf("unexpected status %d", kubeconfigResp.StatusCode)
+				}
+				return nil
+			}, 30*time.Second, time.Second).Should(Succeed())
+			Expect(kubeconfigResp).NotTo(BeNil())
+			defer kubeconfigResp.Body.Close()
+
+			body, err := io.ReadAll(kubeconfigResp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			bodyStr := string(body)
+			Expect(bodyStr).To(ContainSubstring(envNamespace), "kubeconfig should contain env namespace")
+			Expect(bodyStr).To(ContainSubstring("clusters:"), "kubeconfig should contain clusters")
+			Expect(bodyStr).To(ContainSubstring("users:"), "kubeconfig should contain users")
+			Expect(bodyStr).To(ContainSubstring("contexts:"), "kubeconfig should contain contexts")
+			Expect(bodyStr).To(ContainSubstring("current-context:"), "kubeconfig should contain current-context")
+			Expect(kubeconfigResp.Header.Get("Content-Disposition")).To(ContainSubstring("kubeconfig-"+envName), "response should suggest kubeconfig filename")
 		})
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks

@@ -25,4 +25,6 @@ resources:
 - ephemeralenv_admin_role.yaml
 - ephemeralenv_editor_role.yaml
 - ephemeralenv_viewer_role.yaml
+# Allow manager to read kubeconfig server URL override from ConfigMap (see ARCHITECTURE Appendix D)
+- kubeconfig_configmap_role.yaml
 

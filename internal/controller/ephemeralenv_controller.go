@@ -26,6 +26,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -72,6 +73,11 @@ const (
 	// RouteType labels for different HTTPRoutes
 	RouteTypeApp   = "app"
 	RouteTypeAdmin = "admin"
+
+	// Developer kubeconfig RBAC: SA and Role names in each env namespace
+	DeveloperAccessSA     = "developer-access"
+	NSAdminRoleName       = "ns-admin"
+	DeveloperAccessBindingName = "developer-access-ns-admin"
 )
 
 // +kubebuilder:rbac:groups=ephemeral.ephemeralenv.io,resources=ephemeralenvs,verbs=get;list;watch;create;update;patch;delete
@@ -80,7 +86,12 @@ const (
 // +kubebuilder:rbac:groups=ephemeral.ephemeralenv.io,resources=environmenttemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups=ephemeral.ephemeralenv.io,resources=environmenttemplates/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts/token,verbs=create
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=referencegrants,verbs=get;list;watch;create;update;patch;delete
@@ -150,6 +161,17 @@ func (r *EphemeralEnvReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
+	// Step 7b: Ensure developer-access RBAC (SA, Role, RoleBinding) for kubeconfig self-service
+	if err := r.ensureDeveloperAccessRBAC(ctx, ephemeralEnv); err != nil {
+		logger.Error(err, "Failed to ensure developer-access RBAC")
+		ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
+		ephemeralEnv.Status.Message = fmt.Sprintf("Failed to create developer RBAC: %v", err)
+		if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
+			logger.Error(statusErr, "Failed to update status after RBAC error")
+		}
+		return ctrl.Result{}, err
+	}
+
 	// Step 8: Ensure NetworkPolicy if isolation is enabled
 	if err := r.ensureNetworkPolicy(ctx, ephemeralEnv); err != nil {
 		logger.Error(err, "Failed to ensure NetworkPolicy")
@@ -180,23 +202,26 @@ func (r *EphemeralEnvReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		// Port-based discovery mode: Deploy Helm first, then discover service
 		logger.Info("Using port-based service discovery", "port", *ephemeralEnv.Spec.ServicePort)
 
-		// Step 10a: Deploy Helm chart first (so services are created)
+		// Step 10a: Deploy Helm chart first (so services are created) if spec has helm/components
 		if r.HelmClient != nil {
-			if err := r.ensureHelmRelease(ctx, ephemeralEnv); err != nil {
-				logger.Error(err, "Failed to ensure Helm release")
-				ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
-				ephemeralEnv.Status.Message = fmt.Sprintf("Failed to deploy Helm chart: %v", err)
-				meta.SetStatusCondition(&ephemeralEnv.Status.Conditions, metav1.Condition{
-					Type:               ephemeralv1alpha1.ConditionTypeHelmDeployed,
-					Status:             metav1.ConditionFalse,
-					Reason:             "HelmDeploymentFailed",
-					Message:            fmt.Sprintf("Helm deployment failed: %v", err),
-					LastTransitionTime: metav1.Now(),
-				})
-				if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
-					logger.Error(statusErr, "Failed to update status after Helm error")
+			components := r.resolveComponents(ctx, ephemeralEnv)
+			if len(components) > 0 {
+				if err := r.ensureHelmRelease(ctx, ephemeralEnv); err != nil {
+					logger.Error(err, "Failed to ensure Helm release")
+					ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
+					ephemeralEnv.Status.Message = fmt.Sprintf("Failed to deploy Helm chart: %v", err)
+					meta.SetStatusCondition(&ephemeralEnv.Status.Conditions, metav1.Condition{
+						Type:               ephemeralv1alpha1.ConditionTypeHelmDeployed,
+						Status:             metav1.ConditionFalse,
+						Reason:             "HelmDeploymentFailed",
+						Message:            fmt.Sprintf("Helm deployment failed: %v", err),
+						LastTransitionTime: metav1.Now(),
+					})
+					if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
+						logger.Error(statusErr, "Failed to update status after Helm error")
+					}
+					return ctrl.Result{}, err
 				}
-				return ctrl.Result{}, err
 			}
 		}
 
@@ -236,24 +261,28 @@ func (r *EphemeralEnvReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	// Step 12: Deploy Helm chart if HelmClient is available (only if not already deployed above)
+	// Step 12: Deploy Helm chart if HelmClient is available and spec has helm/components (only if not already deployed above)
 	if ephemeralEnv.Spec.ServicePort == nil && r.HelmClient != nil {
-		if err := r.ensureHelmRelease(ctx, ephemeralEnv); err != nil {
-			logger.Error(err, "Failed to ensure Helm release")
-			ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
-			ephemeralEnv.Status.Message = fmt.Sprintf("Failed to deploy Helm chart: %v", err)
-			meta.SetStatusCondition(&ephemeralEnv.Status.Conditions, metav1.Condition{
-				Type:               ephemeralv1alpha1.ConditionTypeHelmDeployed,
-				Status:             metav1.ConditionFalse,
-				Reason:             "HelmDeploymentFailed",
-				Message:            fmt.Sprintf("Helm deployment failed: %v", err),
-				LastTransitionTime: metav1.Now(),
-			})
-			if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
-				logger.Error(statusErr, "Failed to update status after Helm error")
+		components := r.resolveComponents(ctx, ephemeralEnv)
+		if len(components) > 0 {
+			if err := r.ensureHelmRelease(ctx, ephemeralEnv); err != nil {
+				logger.Error(err, "Failed to ensure Helm release")
+				ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
+				ephemeralEnv.Status.Message = fmt.Sprintf("Failed to deploy Helm chart: %v", err)
+				meta.SetStatusCondition(&ephemeralEnv.Status.Conditions, metav1.Condition{
+					Type:               ephemeralv1alpha1.ConditionTypeHelmDeployed,
+					Status:             metav1.ConditionFalse,
+					Reason:             "HelmDeploymentFailed",
+					Message:            fmt.Sprintf("Helm deployment failed: %v", err),
+					LastTransitionTime: metav1.Now(),
+				})
+				if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
+					logger.Error(statusErr, "Failed to update status after Helm error")
+				}
+				return ctrl.Result{}, err
 			}
-			return ctrl.Result{}, err
 		}
+		// No helm/components: skip deploy (e.g. minimal env for kubeconfig self-service only)
 	}
 
 	// Update phase to Active if we've successfully created all resources
@@ -365,6 +394,116 @@ func (r *EphemeralEnvReconciler) ensureNamespace(ctx context.Context, env *ephem
 		Message:            fmt.Sprintf("Namespace %s is ready", namespaceName),
 		LastTransitionTime: metav1.Now(),
 	})
+
+	return nil
+}
+
+// ensureDeveloperAccessRBAC creates ServiceAccount "developer-access", Role "ns-admin" (full access in namespace),
+// and RoleBinding binding the SA to the Role so developers can download a restricted kubeconfig.
+func (r *EphemeralEnvReconciler) ensureDeveloperAccessRBAC(ctx context.Context, env *ephemeralv1alpha1.EphemeralEnv) error {
+	logger := logf.FromContext(ctx)
+	namespaceName := env.Status.ActiveNamespace
+	if namespaceName == "" {
+		namespaceName = env.GetNamespaceName()
+	}
+
+	// 1. ServiceAccount developer-access
+	sa := &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      DeveloperAccessSA,
+			Namespace: namespaceName,
+			Labels: map[string]string{
+				LabelManagedBy: ManagedByValue,
+				LabelOwner:     env.Name,
+			},
+		},
+	}
+	result, err := controllerutil.CreateOrUpdate(ctx, r.Client, sa, func() error {
+		if sa.Labels == nil {
+			sa.Labels = make(map[string]string)
+		}
+		sa.Labels[LabelManagedBy] = ManagedByValue
+		sa.Labels[LabelOwner] = env.Name
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create/update ServiceAccount %s: %w", DeveloperAccessSA, err)
+	}
+	logger.Info("ServiceAccount reconciled", "namespace", namespaceName, "name", DeveloperAccessSA, "result", result)
+
+	// 2. Role ns-admin: full access within namespace
+	role := &rbacv1.Role{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      NSAdminRoleName,
+			Namespace: namespaceName,
+			Labels: map[string]string{
+				LabelManagedBy: ManagedByValue,
+				LabelOwner:     env.Name,
+			},
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{"*"},
+				Resources: []string{"*"},
+				Verbs:     []string{"*"},
+			},
+		},
+	}
+	result, err = controllerutil.CreateOrUpdate(ctx, r.Client, role, func() error {
+		if role.Labels == nil {
+			role.Labels = make(map[string]string)
+		}
+		role.Labels[LabelManagedBy] = ManagedByValue
+		role.Labels[LabelOwner] = env.Name
+		role.Rules = []rbacv1.PolicyRule{
+			{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"*"}},
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create/update Role %s: %w", NSAdminRoleName, err)
+	}
+	logger.Info("Role reconciled", "namespace", namespaceName, "name", NSAdminRoleName, "result", result)
+
+	// 3. RoleBinding: developer-access SA -> ns-admin Role
+	roleBinding := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      DeveloperAccessBindingName,
+			Namespace: namespaceName,
+			Labels: map[string]string{
+				LabelManagedBy: ManagedByValue,
+				LabelOwner:     env.Name,
+			},
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      rbacv1.ServiceAccountKind,
+				Name:      DeveloperAccessSA,
+				Namespace: namespaceName,
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: rbacv1.GroupName,
+			Kind:     "Role",
+			Name:     NSAdminRoleName,
+		},
+	}
+	result, err = controllerutil.CreateOrUpdate(ctx, r.Client, roleBinding, func() error {
+		if roleBinding.Labels == nil {
+			roleBinding.Labels = make(map[string]string)
+		}
+		roleBinding.Labels[LabelManagedBy] = ManagedByValue
+		roleBinding.Labels[LabelOwner] = env.Name
+		roleBinding.Subjects = []rbacv1.Subject{
+			{Kind: rbacv1.ServiceAccountKind, Name: DeveloperAccessSA, Namespace: namespaceName},
+		}
+		roleBinding.RoleRef = rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "Role", Name: NSAdminRoleName}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create/update RoleBinding %s: %w", DeveloperAccessBindingName, err)
+	}
+	logger.Info("RoleBinding reconciled", "namespace", namespaceName, "name", DeveloperAccessBindingName, "result", result)
 
 	return nil
 }

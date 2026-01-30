@@ -183,6 +183,51 @@ The operator runs:
 
 After starting the operator, open: **http://localhost:8082**
 
+### Testing kubeconfig self-service (minikube / manual)
+
+To manually test the kubeconfig download on Minikube (or any cluster):
+
+1. **Operator running** (in-cluster: `make deploy IMG=...` and create an EphemeralEnv; or locally: `go run ./cmd/main.go`).
+2. **Run the script** (from WSL or Linux/macOS):
+
+   ```bash
+   # From project root; creates EphemeralEnv "kubeconfig-test" if needed, downloads kubeconfig
+   ./scripts/test-kubeconfig-minikube.sh
+
+   # Or use an existing env name (e.g. pr-123-demo)
+   ./scripts/test-kubeconfig-minikube.sh pr-123-demo
+   ```
+
+3. **Use the kubeconfig**:
+
+   ```bash
+   export KUBECONFIG=$PWD/kubeconfig-kubeconfig-test.yaml
+   kubectl get pods -n env-kubeconfig-test
+   ```
+
+The script port-forwards to the operator UI if it is not already reachable on `:8082`, downloads the kubeconfig, and optionally validates it with `kubectl`.
+
+**Minikube / wrong server URL in generated kubeconfig**  
+The operator uses the API server URL from cluster-info or rest config; on Minikube (or some clouds) that can be an internal address. Use one of:
+
+1. **Env (local or deploy):**  
+   `export KUBECONFIG_SERVER_URL=https://127.0.0.1:32771` (use the URL from `kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}'`), then run the operator.
+
+2. **ConfigMap (per-cluster, production-style):**  
+   Create a ConfigMap in the operator namespace with the reachable API server URL (see [ARCHITECTURE.md Appendix D](ARCHITECTURE.md#appendix-d-kubeconfig-api-server-url)). Example (replace namespace/name if your deploy uses a different one):
+
+   ```yaml
+   apiVersion: v1
+   kind: ConfigMap
+   metadata:
+     name: ephemeral-operator-ui-config
+     namespace: ephemeral-operator-system   # same as operator deploy namespace
+   data:
+     kubeconfig-server-url: "https://127.0.0.1:32771"   # or your cluster's public endpoint
+   ```
+
+   ConfigMap override takes precedence over `KUBECONFIG_SERVER_URL`. This matches how Rancher (FQDN) and EKS (cluster endpoint) configure the kubeconfig server URL per cluster.
+
 ---
 
 ## Multi-group Layout (Reference)

@@ -231,11 +231,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	restConfig := ctrl.GetConfigOrDie()
+	operatorNS := operatorNamespace
+	if operatorNS == "" {
+		operatorNS = os.Getenv("POD_NAMESPACE")
+	}
+	if operatorNS == "" {
+		operatorNS = os.Getenv("OPERATOR_NAMESPACE")
+	}
 	uiConfig := ui.Config{
-		PlatformDomain: uiPlatformDomain,
-		AdminPrefix:    "admin",
-		BaseDomain:     uiBaseDomain,
-		ListenAddr:     uiAddr,
+		PlatformDomain:      uiPlatformDomain,
+		AdminPrefix:         "admin",
+		BaseDomain:          uiBaseDomain,
+		ListenAddr:          uiAddr,
+		RestConfig:          restConfig,
+		KubeconfigServerURL: os.Getenv("KUBECONFIG_SERVER_URL"),
+		OperatorNamespace:   operatorNS,
 	}
 
 	uiServer, err := ui.NewServer(uiConfig, mgr.GetClient(), kubeClient)

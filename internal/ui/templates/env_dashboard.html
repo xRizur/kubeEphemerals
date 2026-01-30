@@ -117,6 +117,7 @@
             </div>
             <div class="env-controls">
                 <button class="btn btn-secondary" onclick="openExtendModal()">⏰ Extend TTL</button>
+                <a href="/api/envs/{{.Environment.Name}}/kubeconfig" class="btn btn-secondary" download="kubeconfig-{{.Environment.Name}}.yaml">📥 Download kubeconfig</a>
                 {{if .Environment.Status.AccessURL}}
                 <a href="{{.Environment.Status.AccessURL}}" target="_blank" class="btn btn-primary">🔗 Open App</a>
                 {{end}}
