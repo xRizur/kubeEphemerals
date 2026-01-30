@@ -369,4 +369,3 @@ func (m *MockClient) IsInstalled(ctx context.Context, releaseName, namespace str
 
 // Ensure MockClient implements Client interface
 var _ Client = (*MockClient)(nil)
-

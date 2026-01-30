@@ -871,7 +871,7 @@ func (r *EphemeralEnvReconciler) resolveComponents(ctx context.Context, env *eph
 			// Convert template components to deployed components
 			components := make([]ephemeralv1alpha1.DeployedComponentSpec, 0, len(template.Spec.Components))
 			for _, tc := range template.Spec.Components {
-			components = append(components, ephemeralv1alpha1.DeployedComponentSpec(tc))
+				components = append(components, ephemeralv1alpha1.DeployedComponentSpec(tc))
 			}
 			logger.Info("Using components from EnvironmentTemplate", "template", template.Name, "count", len(components))
 			return components
@@ -947,8 +947,8 @@ func (r *EphemeralEnvReconciler) deployComponent(ctx context.Context, env *ephem
 		return status, nil
 	}
 
-	// Convert JSON values to map[string]interface{}
-	var values map[string]interface{}
+	// Convert JSON values to map[string]any
+	var values map[string]any
 	if comp.Values != nil && len(comp.Values.Raw) > 0 {
 		if err := json.Unmarshal(comp.Values.Raw, &values); err != nil {
 			status.Status = statusError

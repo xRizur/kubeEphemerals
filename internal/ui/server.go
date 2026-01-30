@@ -158,7 +158,7 @@ func (s *Server) templateFuncs() template.FuncMap {
 				return "status-unknown"
 			}
 		},
-		"json": func(v interface{}) string {
+		"json": func(v any) string {
 			b, _ := json.MarshalIndent(v, "", "  ")
 			return string(b)
 		},
@@ -282,7 +282,7 @@ func (s *Server) handleGlobalDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Title":        "Ephemeral Environments",
 		"Environments": envList.Items,
 		"Config":       s.config,
@@ -378,7 +378,7 @@ func (s *Server) renderEnvDashboard(w http.ResponseWriter, r *http.Request, envN
 		log.Error(err, "Failed to list pods", "namespace", env.Status.ActiveNamespace)
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Title":       fmt.Sprintf("Environment: %s", envName),
 		"Environment": env,
 		"Pods":        pods.Items,
@@ -400,7 +400,7 @@ func (s *Server) getEnvStatus(w http.ResponseWriter, r *http.Request, envName st
 		return
 	}
 
-	status := map[string]interface{}{
+	status := map[string]any{
 		"name":           env.Name,
 		"phase":          env.Status.Phase,
 		"namespace":      env.Status.ActiveNamespace,
@@ -442,9 +442,9 @@ func (s *Server) getEnvPods(w http.ResponseWriter, r *http.Request, envName stri
 	}
 
 	// Simplify pod data for JSON response
-	podInfos := make([]map[string]interface{}, 0, len(pods.Items))
+	podInfos := make([]map[string]any, 0, len(pods.Items))
 	for _, pod := range pods.Items {
-		podInfo := map[string]interface{}{
+		podInfo := map[string]any{
 			"name":      pod.Name,
 			"namespace": pod.Namespace,
 			"status":    string(pod.Status.Phase),
@@ -566,7 +566,7 @@ func (s *Server) streamPodLogs(w http.ResponseWriter, r *http.Request, envName, 
 	req := s.kubeClient.CoreV1().Pods(env.Status.ActiveNamespace).GetLogs(podName, opts)
 	stream, err := req.Stream(r.Context())
 	if err != nil {
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: %v", err)))
+		_ = conn.WriteMessage(websocket.TextMessage, fmt.Appendf(nil, "Error: %v", err))
 		return
 	}
 	defer func() { _ = stream.Close() }()
@@ -577,7 +577,7 @@ func (s *Server) streamPodLogs(w http.ResponseWriter, r *http.Request, envName, 
 		n, err := stream.Read(buf)
 		if err != nil {
 			if err != io.EOF {
-				_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: %v", err)))
+				_ = conn.WriteMessage(websocket.TextMessage, fmt.Appendf(nil, "Error: %v", err))
 			}
 			break
 		}
@@ -635,7 +635,7 @@ func (s *Server) extendTTL(w http.ResponseWriter, r *http.Request, envName strin
 		return
 	}
 
-	s.jsonResponse(w, map[string]interface{}{
+	s.jsonResponse(w, map[string]any{
 		"status":        "extended",
 		"newExpiration": env.Status.ExpirationTime,
 		"ttlRemaining":  time.Until(env.Status.ExpirationTime.Time).Round(time.Second).String(),
