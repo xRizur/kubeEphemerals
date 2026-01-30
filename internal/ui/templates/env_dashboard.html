@@ -163,7 +163,11 @@
                     </div>
                     <div class="config-item">
                         <label>Target Service</label>
+                        {{if .Environment.Spec.ServicePort}}
+                        <pre>Discovered by port {{.Environment.Spec.ServicePort}} (backend: {{.Environment.Spec.Gateway.TargetPort}})</pre>
+                        {{else}}
                         <pre>{{.Environment.Spec.Gateway.ServiceName}}:{{.Environment.Spec.Gateway.TargetPort}}</pre>
+                        {{end}}
                     </div>
                 </div>
             </div>
