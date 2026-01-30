@@ -17,6 +17,14 @@ rules:
   - update
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - ephemeral.ephemeralenv.io
   resources:
   - environmenttemplates

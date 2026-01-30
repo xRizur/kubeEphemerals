@@ -81,7 +81,7 @@ type ComponentAPIResponse struct {
 	ServicePort int32 `json:"servicePort"`
 
 	// Values contains default Helm values for this component (as raw JSON)
-	Values interface{} `json:"values,omitempty"`
+	Values any `json:"values,omitempty"`
 
 	// Primary indicates if this is the main component (used for routing)
 	Primary bool `json:"primary,omitempty"`
@@ -91,7 +91,7 @@ type ComponentAPIResponse struct {
 func convertTemplateToAPIResponse(t *ephemeralv1alpha1.EnvironmentTemplate) TemplateAPIResponse {
 	components := make([]ComponentAPIResponse, 0, len(t.Spec.Components))
 	for _, c := range t.Spec.Components {
-		var values interface{}
+		var values any
 		if c.Values != nil && len(c.Values.Raw) > 0 {
 			values = c.Values.Raw
 		}

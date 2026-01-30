@@ -20,6 +20,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -37,6 +39,12 @@ import (
 
 	ephemeralv1alpha1 "github.com/maciekmm/kubeEphemerals/api/v1alpha1"
 	"github.com/maciekmm/kubeEphemerals/internal/helm"
+)
+
+// Component status constants
+const (
+	statusError    = "Error"
+	statusDeployed = "Deployed"
 )
 
 // EphemeralEnvReconciler reconciles a EphemeralEnv object
@@ -72,6 +80,7 @@ const (
 // +kubebuilder:rbac:groups=ephemeral.ephemeralenv.io,resources=environmenttemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups=ephemeral.ephemeralenv.io,resources=environmenttemplates/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=referencegrants,verbs=get;list;watch;create;update;patch;delete
@@ -163,8 +172,52 @@ func (r *EphemeralEnvReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	// Step 10: Ensure HTTPRoute for Gateway API routing
-	if err := r.ensureHTTPRoute(ctx, ephemeralEnv); err != nil {
+	// Step 10-12: Handle Helm deployment and HTTPRoute creation
+	// If ServicePort is set, we need to deploy Helm first, then discover the service
+	effectiveServiceName := ephemeralEnv.Spec.Gateway.ServiceName
+
+	if ephemeralEnv.Spec.ServicePort != nil {
+		// Port-based discovery mode: Deploy Helm first, then discover service
+		logger.Info("Using port-based service discovery", "port", *ephemeralEnv.Spec.ServicePort)
+
+		// Step 10a: Deploy Helm chart first (so services are created)
+		if r.HelmClient != nil {
+			if err := r.ensureHelmRelease(ctx, ephemeralEnv); err != nil {
+				logger.Error(err, "Failed to ensure Helm release")
+				ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
+				ephemeralEnv.Status.Message = fmt.Sprintf("Failed to deploy Helm chart: %v", err)
+				meta.SetStatusCondition(&ephemeralEnv.Status.Conditions, metav1.Condition{
+					Type:               ephemeralv1alpha1.ConditionTypeHelmDeployed,
+					Status:             metav1.ConditionFalse,
+					Reason:             "HelmDeploymentFailed",
+					Message:            fmt.Sprintf("Helm deployment failed: %v", err),
+					LastTransitionTime: metav1.Now(),
+				})
+				if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
+					logger.Error(statusErr, "Failed to update status after Helm error")
+				}
+				return ctrl.Result{}, err
+			}
+		}
+
+		// Step 10b: Discover service by port
+		discoveredService, err := r.discoverService(ctx, ephemeralEnv, *ephemeralEnv.Spec.ServicePort)
+		if err != nil {
+			logger.Info("Service discovery pending, will retry", "error", err.Error())
+			ephemeralEnv.Status.Message = fmt.Sprintf("Waiting for service discovery: %v", err)
+			if statusErr := r.Status().Update(ctx, ephemeralEnv); statusErr != nil {
+				logger.Error(statusErr, "Failed to update status")
+			}
+			// Requeue after short delay to allow services to be created
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
+		effectiveServiceName = discoveredService
+		logger.Info("Service discovered", "serviceName", effectiveServiceName, "port", *ephemeralEnv.Spec.ServicePort)
+	}
+	// else: Traditional mode - Deploy Helm after HTTPRoute (existing behavior)
+
+	// Step 10c/10: Ensure HTTPRoute for Gateway API routing
+	if err := r.ensureHTTPRoute(ctx, ephemeralEnv, effectiveServiceName); err != nil {
 		logger.Error(err, "Failed to ensure HTTPRoute")
 		ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
 		ephemeralEnv.Status.Message = fmt.Sprintf("Failed to create HTTPRoute: %v", err)
@@ -183,8 +236,8 @@ func (r *EphemeralEnvReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	// Step 12: Deploy Helm chart if HelmClient is available
-	if r.HelmClient != nil {
+	// Step 12: Deploy Helm chart if HelmClient is available (only if not already deployed above)
+	if ephemeralEnv.Spec.ServicePort == nil && r.HelmClient != nil {
 		if err := r.ensureHelmRelease(ctx, ephemeralEnv); err != nil {
 			logger.Error(err, "Failed to ensure Helm release")
 			ephemeralEnv.Status.Phase = ephemeralv1alpha1.PhaseFailed
@@ -526,7 +579,8 @@ func (r *EphemeralEnvReconciler) cleanupAdminHTTPRoute(ctx context.Context, env 
 }
 
 // ensureHTTPRoute creates or updates the HTTPRoute for the EphemeralEnv
-func (r *EphemeralEnvReconciler) ensureHTTPRoute(ctx context.Context, env *ephemeralv1alpha1.EphemeralEnv) error {
+// serviceName is the backend service name (either from spec or discovered via port)
+func (r *EphemeralEnvReconciler) ensureHTTPRoute(ctx context.Context, env *ephemeralv1alpha1.EphemeralEnv, serviceName string) error {
 	logger := logf.FromContext(ctx)
 	routeName := env.GetHTTPRouteName()
 	routeNamespace := env.Spec.Gateway.Namespace
@@ -541,13 +595,21 @@ func (r *EphemeralEnvReconciler) ensureHTTPRoute(ctx context.Context, env *ephem
 		Namespace: &gatewayNamespace,
 	}
 
+	// Determine target port: use ServicePort if set, otherwise Gateway.TargetPort
+	var targetPort int32
+	if env.Spec.ServicePort != nil {
+		targetPort = *env.Spec.ServicePort
+	} else {
+		targetPort = env.Spec.Gateway.TargetPort
+	}
+
 	// Backend service reference
 	serviceNamespace := gatewayv1.Namespace(env.Status.ActiveNamespace)
-	port := gatewayv1.PortNumber(env.Spec.Gateway.TargetPort)
+	port := gatewayv1.PortNumber(targetPort)
 	backendRef := gatewayv1.HTTPBackendRef{
 		BackendRef: gatewayv1.BackendRef{
 			BackendObjectReference: gatewayv1.BackendObjectReference{
-				Name:      gatewayv1.ObjectName(env.Spec.Gateway.ServiceName),
+				Name:      gatewayv1.ObjectName(serviceName),
 				Namespace: &serviceNamespace,
 				Port:      &port,
 			},
@@ -809,16 +871,7 @@ func (r *EphemeralEnvReconciler) resolveComponents(ctx context.Context, env *eph
 			// Convert template components to deployed components
 			components := make([]ephemeralv1alpha1.DeployedComponentSpec, 0, len(template.Spec.Components))
 			for _, tc := range template.Spec.Components {
-				components = append(components, ephemeralv1alpha1.DeployedComponentSpec{
-					Name:        tc.Name,
-					Repository:  tc.Repository,
-					Chart:       tc.Chart,
-					Version:     tc.Version,
-					ServiceName: tc.ServiceName,
-					ServicePort: tc.ServicePort,
-					Values:      tc.Values,
-					Primary:     tc.Primary,
-				})
+				components = append(components, ephemeralv1alpha1.DeployedComponentSpec(tc))
 			}
 			logger.Info("Using components from EnvironmentTemplate", "template", template.Name, "count", len(components))
 			return components
@@ -882,23 +935,23 @@ func (r *EphemeralEnvReconciler) deployComponent(ctx context.Context, env *ephem
 	// Check if already installed
 	isInstalled, err := r.HelmClient.IsInstalled(ctx, releaseName, namespace)
 	if err != nil {
-		status.Status = "Error"
+		status.Status = statusError
 		status.Message = fmt.Sprintf("Failed to check status: %v", err)
 		return status, fmt.Errorf("failed to check Helm release status: %w", err)
 	}
 
 	if isInstalled {
 		logger.Info("Helm release already installed, skipping", "release", releaseName, "namespace", namespace, "component", comp.Name)
-		status.Status = "Deployed"
+		status.Status = statusDeployed
 		status.Message = "Already installed"
 		return status, nil
 	}
 
-	// Convert JSON values to map[string]interface{}
-	var values map[string]interface{}
+	// Convert JSON values to map[string]any
+	var values map[string]any
 	if comp.Values != nil && len(comp.Values.Raw) > 0 {
 		if err := json.Unmarshal(comp.Values.Raw, &values); err != nil {
-			status.Status = "Error"
+			status.Status = statusError
 			status.Message = fmt.Sprintf("Failed to parse values: %v", err)
 			return status, fmt.Errorf("failed to parse Helm values: %w", err)
 		}
@@ -924,7 +977,7 @@ func (r *EphemeralEnvReconciler) deployComponent(ctx context.Context, env *ephem
 	// Install the chart
 	releaseInfo, err := r.HelmClient.Install(ctx, opts)
 	if err != nil {
-		status.Status = "Error"
+		status.Status = statusError
 		status.Message = fmt.Sprintf("Failed to install: %v", err)
 		return status, fmt.Errorf("failed to install Helm chart: %w", err)
 	}
@@ -936,7 +989,7 @@ func (r *EphemeralEnvReconciler) deployComponent(ctx context.Context, env *ephem
 		"component", comp.Name)
 
 	now := metav1.Now()
-	status.Status = "Deployed"
+	status.Status = statusDeployed
 	status.Message = fmt.Sprintf("Helm release %s installed successfully", releaseInfo.Name)
 	status.LastDeployed = &now
 
@@ -1039,6 +1092,107 @@ func (r *EphemeralEnvReconciler) uninstallHelmRelease(ctx context.Context, env *
 
 	logger.Info("Helm release uninstalled successfully", "release", releaseName)
 	return nil
+}
+
+// getPrimaryComponentName returns the name of the primary component for heuristic matching
+func (r *EphemeralEnvReconciler) getPrimaryComponentName(ctx context.Context, env *ephemeralv1alpha1.EphemeralEnv) string {
+	// Check Components first
+	for _, comp := range env.Spec.Components {
+		if comp.Primary {
+			return comp.Name
+		}
+	}
+	// Check template
+	if env.Spec.TemplateRef != nil {
+		template, err := r.getTemplate(ctx, env)
+		if err == nil {
+			for _, comp := range template.Spec.Components {
+				if comp.Primary {
+					return comp.Name
+				}
+			}
+		}
+	}
+	// Fallback to Helm chart name
+	if env.Spec.Helm != nil {
+		return env.Spec.Helm.Chart
+	}
+	return ""
+}
+
+// discoverService finds a Service in the namespace that exposes the target port.
+// It ignores Headless services (ClusterIP: None), ExternalName services, and services with "metrics" in name.
+// Returns the service name if found, or error if no match/multiple ambiguous matches.
+func (r *EphemeralEnvReconciler) discoverService(ctx context.Context, env *ephemeralv1alpha1.EphemeralEnv, targetPort int32) (string, error) {
+	logger := logf.FromContext(ctx)
+	namespace := env.Status.ActiveNamespace
+
+	// List all services in the namespace
+	serviceList := &corev1.ServiceList{}
+	if err := r.List(ctx, serviceList, client.InNamespace(namespace)); err != nil {
+		return "", fmt.Errorf("failed to list services in namespace %s: %w", namespace, err)
+	}
+
+	// Filter and find matching services
+	var matchingServices []corev1.Service
+	for _, svc := range serviceList.Items {
+		// Skip Headless services (ClusterIP: None)
+		if svc.Spec.ClusterIP == corev1.ClusterIPNone {
+			logger.V(1).Info("Skipping headless service", "service", svc.Name)
+			continue
+		}
+		// Skip ExternalName services
+		if svc.Spec.Type == corev1.ServiceTypeExternalName {
+			logger.V(1).Info("Skipping ExternalName service", "service", svc.Name)
+			continue
+		}
+		// Skip services with "metrics" in name (common technical services)
+		if strings.Contains(strings.ToLower(svc.Name), "metrics") {
+			logger.V(1).Info("Skipping metrics service", "service", svc.Name)
+			continue
+		}
+
+		// Check if any port matches the target port
+		for _, port := range svc.Spec.Ports {
+			if port.Port == targetPort {
+				matchingServices = append(matchingServices, svc)
+				break
+			}
+		}
+	}
+
+	// Handle results
+	switch len(matchingServices) {
+	case 0:
+		return "", fmt.Errorf("no service found exposing port %d in namespace %s (service may still be starting)", targetPort, namespace)
+	case 1:
+		logger.Info("Discovered service by port", "service", matchingServices[0].Name, "port", targetPort)
+		return matchingServices[0].Name, nil
+	default:
+		// Multiple matches - apply heuristic
+		componentName := r.getPrimaryComponentName(ctx, env)
+		logger.Info("Multiple services match port, applying heuristic", "port", targetPort, "count", len(matchingServices), "componentName", componentName)
+
+		// Sort by name length (prefer shorter names) as secondary criteria
+		sort.Slice(matchingServices, func(i, j int) bool {
+			return len(matchingServices[i].Name) < len(matchingServices[j].Name)
+		})
+
+		// First preference: name contains the component name
+		if componentName != "" {
+			for _, svc := range matchingServices {
+				if strings.Contains(strings.ToLower(svc.Name), strings.ToLower(componentName)) {
+					logger.Info("Selected service matching component name", "service", svc.Name, "component", componentName)
+					return svc.Name, nil
+				}
+			}
+		}
+
+		// Fallback: shortest name
+		selected := matchingServices[0].Name
+		logger.Info("Selected service with shortest name (heuristic)", "service", selected, "warning", "multiple services match - consider specifying serviceName explicitly")
+		return selected, nil
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.

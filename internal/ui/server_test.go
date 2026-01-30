@@ -358,7 +358,7 @@ var _ = Describe("UI Server", func() {
 
 				Expect(rec.Code).To(Equal(http.StatusOK))
 
-				var result map[string]interface{}
+				var result map[string]any
 				Expect(json.NewDecoder(rec.Body).Decode(&result)).To(Succeed())
 				Expect(result["status"]).To(Equal("extended"))
 			})
@@ -405,7 +405,7 @@ var _ = Describe("UI Server", func() {
 
 				Expect(rec.Code).To(Equal(http.StatusOK))
 
-				var pods []map[string]interface{}
+				var pods []map[string]any
 				Expect(json.NewDecoder(rec.Body).Decode(&pods)).To(Succeed())
 				// Empty because no pods exist in fake client
 				Expect(pods).To(BeEmpty())

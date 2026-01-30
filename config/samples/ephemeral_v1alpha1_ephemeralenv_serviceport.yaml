@@ -1,0 +1,47 @@
+# =============================================================================
+# Ephemeral Environment - Port-Based Service Discovery (Phase 8.5)
+# =============================================================================
+# Operator discovers the backend Service by APPLICATION PORT instead of
+# requiring the exact service name. Useful when Helm chart creates a service
+# with a non-obvious name.
+#
+# Flow: Helm install -> Operator lists Services in env namespace ->
+#       finds Service with spec.ports[].port == servicePort ->
+#       uses that service name for HTTPRoute.
+# =============================================================================
+apiVersion: ephemeral.ephemeralenv.io/v1alpha1
+kind: EphemeralEnv
+metadata:
+  name: pr-discovery-live
+  labels:
+    app.kubernetes.io/name: ephemeral-operator
+    feature: service-discovery
+spec:
+  ttl: "2h"
+  isolation: true
+
+  # Port used for discovery: operator finds Service exposing this port
+  # (ignores Headless, ExternalName, metrics-like services)
+  servicePort: 9898
+
+  helm:
+    repository: "https://stefanprodan.github.io/podinfo"
+    chart: "podinfo"
+    version: "6.9.4"
+    values:
+      replicaCount: 1
+      service:
+        enabled: true
+        type: ClusterIP
+        port: 9898
+      ingress:
+        enabled: false
+
+  gateway:
+    name: "main-gateway"
+    namespace: "default"
+    domainPrefix: "pr-discovery-live"
+    # When servicePort is set, this is only a fallback/placeholder;
+    # operator overwrites with discovered service name for HTTPRoute
+    serviceName: "placeholder"
+    targetPort: 9898

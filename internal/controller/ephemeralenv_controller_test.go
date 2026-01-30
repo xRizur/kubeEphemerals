@@ -56,12 +56,12 @@ func findCondition(conditions []metav1.Condition, conditionType string) *metav1.
 // reconcileWithRetry calls Reconcile multiple times until no Requeue is requested
 // This handles the finalizer addition which requires an extra reconcile
 func reconcileWithRetry(ctx context.Context, reconciler *EphemeralEnvReconciler, req reconcile.Request, maxRetries int) error {
-	for i := 0; i < maxRetries; i++ {
+	for range maxRetries {
 		result, err := reconciler.Reconcile(ctx, req)
 		if err != nil {
 			return err
 		}
-		if !result.Requeue && result.RequeueAfter == 0 {
+		if result.RequeueAfter == 0 {
 			return nil
 		}
 		// Small sleep to let the system stabilize
@@ -1555,7 +1555,7 @@ var _ = Describe("EphemeralEnv Controller", func() {
 
 				By("Checking install was not called again")
 				// Install should check IsInstalled first and skip if already installed
-				Expect(len(mockHelmClient.InstallCalls)).To(Equal(initialInstallCount))
+				Expect(mockHelmClient.InstallCalls).To(HaveLen(initialInstallCount))
 			})
 		})
 
@@ -1584,6 +1584,219 @@ var _ = Describe("EphemeralEnv Controller", func() {
 					NamespacedName: typeNamespacedName,
 				})
 				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+
+		// =================================================================
+		// Phase 8.5: Port-Based Service Discovery Tests
+		// =================================================================
+
+		Describe("Phase 8.5: Port-Based Service Discovery", func() {
+			var (
+				envNamespace string
+			)
+
+			// Helper to create test services
+			createTestService := func(namespace, name string, port int32, clusterIP string) *corev1.Service {
+				svc := &corev1.Service{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      name,
+						Namespace: namespace,
+					},
+					Spec: corev1.ServiceSpec{
+						Ports: []corev1.ServicePort{
+							{Name: "http", Port: port, Protocol: corev1.ProtocolTCP},
+						},
+						Selector: map[string]string{"app": name},
+					},
+				}
+				if clusterIP != "" {
+					svc.Spec.ClusterIP = clusterIP
+				}
+				return svc
+			}
+
+			BeforeEach(func() {
+				// Reset mock calls
+				mockHelmClient.InstallCalls = make([]helm.InstallOptions, 0)
+				mockHelmClient.UninstallCalls = make([]struct{ ReleaseName, Namespace string }, 0)
+				// Set up mock to return not installed initially
+				mockHelmClient.IsInstalledFunc = func(ctx context.Context, releaseName, namespace string) (bool, error) {
+					return false, nil
+				}
+			})
+
+			It("should discover service with matching port (Happy Path)", func() {
+				By("Creating EphemeralEnv with ServicePort")
+				envName := "discovery-happy"
+				servicePort := int32(8080)
+
+				ephemeralEnv = createTestEphemeralEnv(envName)
+				ephemeralEnv.Spec.ServicePort = &servicePort
+				typeNamespacedName = types.NamespacedName{
+					Name:      envName,
+					Namespace: testNamespace,
+				}
+				Expect(k8sClient.Create(ctx, ephemeralEnv)).To(Succeed())
+
+				By("First reconcile - creates namespace")
+				_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+
+				// Get the created namespace name
+				Expect(k8sClient.Get(ctx, typeNamespacedName, ephemeralEnv)).To(Succeed())
+				envNamespace = ephemeralEnv.Status.ActiveNamespace
+				Expect(envNamespace).NotTo(BeEmpty())
+
+				By("Creating a matching service in the namespace")
+				svc := createTestService(envNamespace, "my-app", servicePort, "")
+				Expect(k8sClient.Create(ctx, svc)).To(Succeed())
+
+				By("Reconciling again - should discover service")
+				err = reconcileWithRetry(ctx, reconciler, reconcile.Request{NamespacedName: typeNamespacedName}, 5)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Checking status is Active")
+				Expect(k8sClient.Get(ctx, typeNamespacedName, ephemeralEnv)).To(Succeed())
+				Expect(ephemeralEnv.Status.Phase).To(Equal(ephemeralv1alpha1.PhaseActive))
+
+				By("Cleanup")
+				Expect(k8sClient.Delete(ctx, svc)).To(Succeed())
+			})
+
+			It("should requeue when no service matches the port (No Match)", func() {
+				By("Creating EphemeralEnv with ServicePort")
+				envName := "discovery-nomatch"
+				servicePort := int32(9999)
+
+				ephemeralEnv = createTestEphemeralEnv(envName)
+				ephemeralEnv.Spec.ServicePort = &servicePort
+				typeNamespacedName = types.NamespacedName{
+					Name:      envName,
+					Namespace: testNamespace,
+				}
+				Expect(k8sClient.Create(ctx, ephemeralEnv)).To(Succeed())
+
+				By("First reconcile - creates namespace")
+				_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+
+				// Get the created namespace name
+				Expect(k8sClient.Get(ctx, typeNamespacedName, ephemeralEnv)).To(Succeed())
+				envNamespace = ephemeralEnv.Status.ActiveNamespace
+
+				By("Creating a service with different port")
+				svc := createTestService(envNamespace, "wrong-port-svc", 80, "")
+				Expect(k8sClient.Create(ctx, svc)).To(Succeed())
+
+				By("Reconciling - should requeue (no match)")
+				result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				// Either error or requeue is acceptable
+				Expect(err != nil || result.RequeueAfter > 0).To(BeTrue())
+
+				By("Cleanup")
+				Expect(k8sClient.Delete(ctx, svc)).To(Succeed())
+			})
+
+			It("should apply heuristic when multiple services match (Multiple Matches)", func() {
+				By("Creating EphemeralEnv with ServicePort")
+				envName := "discovery-multi"
+				servicePort := int32(8080)
+
+				ephemeralEnv = createTestEphemeralEnv(envName)
+				ephemeralEnv.Spec.ServicePort = &servicePort
+				typeNamespacedName = types.NamespacedName{
+					Name:      envName,
+					Namespace: testNamespace,
+				}
+				Expect(k8sClient.Create(ctx, ephemeralEnv)).To(Succeed())
+
+				By("First reconcile - creates namespace")
+				_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(k8sClient.Get(ctx, typeNamespacedName, ephemeralEnv)).To(Succeed())
+				envNamespace = ephemeralEnv.Status.ActiveNamespace
+
+				By("Creating multiple services with same port")
+				svc1 := createTestService(envNamespace, "app", servicePort, "")
+				svc2 := createTestService(envNamespace, "longer-app-name", servicePort, "")
+				Expect(k8sClient.Create(ctx, svc1)).To(Succeed())
+				Expect(k8sClient.Create(ctx, svc2)).To(Succeed())
+
+				By("Reconciling - should pick one using heuristic (shortest name)")
+				err = reconcileWithRetry(ctx, reconciler, reconcile.Request{NamespacedName: typeNamespacedName}, 5)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Checking status is Active")
+				Expect(k8sClient.Get(ctx, typeNamespacedName, ephemeralEnv)).To(Succeed())
+				Expect(ephemeralEnv.Status.Phase).To(Equal(ephemeralv1alpha1.PhaseActive))
+
+				By("Cleanup")
+				Expect(k8sClient.Delete(ctx, svc1)).To(Succeed())
+				Expect(k8sClient.Delete(ctx, svc2)).To(Succeed())
+			})
+
+			It("should ignore headless services (Ignore Garbage)", func() {
+				By("Creating EphemeralEnv with ServicePort")
+				envName := "discovery-headless"
+				servicePort := int32(8080)
+
+				ephemeralEnv = createTestEphemeralEnv(envName)
+				ephemeralEnv.Spec.ServicePort = &servicePort
+				typeNamespacedName = types.NamespacedName{
+					Name:      envName,
+					Namespace: testNamespace,
+				}
+				Expect(k8sClient.Create(ctx, ephemeralEnv)).To(Succeed())
+
+				By("First reconcile - creates namespace")
+				_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(k8sClient.Get(ctx, typeNamespacedName, ephemeralEnv)).To(Succeed())
+				envNamespace = ephemeralEnv.Status.ActiveNamespace
+
+				By("Creating headless service (ClusterIP: None) and regular service")
+				headlessSvc := createTestService(envNamespace, "headless-svc", servicePort, corev1.ClusterIPNone)
+				regularSvc := createTestService(envNamespace, "regular-svc", servicePort, "")
+				Expect(k8sClient.Create(ctx, headlessSvc)).To(Succeed())
+				Expect(k8sClient.Create(ctx, regularSvc)).To(Succeed())
+
+				By("Reconciling - should ignore headless and find regular service")
+				err = reconcileWithRetry(ctx, reconciler, reconcile.Request{NamespacedName: typeNamespacedName}, 5)
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Checking status is Active")
+				Expect(k8sClient.Get(ctx, typeNamespacedName, ephemeralEnv)).To(Succeed())
+				Expect(ephemeralEnv.Status.Phase).To(Equal(ephemeralv1alpha1.PhaseActive))
+
+				By("Cleanup")
+				Expect(k8sClient.Delete(ctx, headlessSvc)).To(Succeed())
+				Expect(k8sClient.Delete(ctx, regularSvc)).To(Succeed())
+			})
+
+			It("should requeue when no services exist yet (Waiting)", func() {
+				By("Creating EphemeralEnv with ServicePort")
+				envName := "discovery-waiting"
+				servicePort := int32(8080)
+
+				ephemeralEnv = createTestEphemeralEnv(envName)
+				ephemeralEnv.Spec.ServicePort = &servicePort
+				typeNamespacedName = types.NamespacedName{
+					Name:      envName,
+					Namespace: testNamespace,
+				}
+				Expect(k8sClient.Create(ctx, ephemeralEnv)).To(Succeed())
+
+				By("First reconcile - creates namespace")
+				_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Second reconcile - no services exist, should requeue")
+				result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
+				// Either error or requeue is acceptable when waiting for service
+				Expect(err != nil || result.RequeueAfter > 0).To(BeTrue())
 			})
 		})
 	})

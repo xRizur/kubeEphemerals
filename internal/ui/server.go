@@ -26,7 +26,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -80,7 +79,6 @@ type Server struct {
 	templateRegistry *TemplateRegistry
 	upgrader         websocket.Upgrader
 	server           *http.Server
-	mu               sync.RWMutex
 }
 
 // NewServer creates a new UI server
@@ -160,7 +158,7 @@ func (s *Server) templateFuncs() template.FuncMap {
 				return "status-unknown"
 			}
 		},
-		"json": func(v interface{}) string {
+		"json": func(v any) string {
 			b, _ := json.MarshalIndent(v, "", "  ")
 			return string(b)
 		},
@@ -227,7 +225,7 @@ func (s *Server) Start(ctx context.Context) error {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		s.server.Shutdown(shutdownCtx)
+		_ = s.server.Shutdown(shutdownCtx)
 	}()
 
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -284,7 +282,7 @@ func (s *Server) handleGlobalDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Title":        "Ephemeral Environments",
 		"Environments": envList.Items,
 		"Config":       s.config,
@@ -380,7 +378,7 @@ func (s *Server) renderEnvDashboard(w http.ResponseWriter, r *http.Request, envN
 		log.Error(err, "Failed to list pods", "namespace", env.Status.ActiveNamespace)
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Title":       fmt.Sprintf("Environment: %s", envName),
 		"Environment": env,
 		"Pods":        pods.Items,
@@ -402,7 +400,7 @@ func (s *Server) getEnvStatus(w http.ResponseWriter, r *http.Request, envName st
 		return
 	}
 
-	status := map[string]interface{}{
+	status := map[string]any{
 		"name":           env.Name,
 		"phase":          env.Status.Phase,
 		"namespace":      env.Status.ActiveNamespace,
@@ -444,9 +442,9 @@ func (s *Server) getEnvPods(w http.ResponseWriter, r *http.Request, envName stri
 	}
 
 	// Simplify pod data for JSON response
-	podInfos := make([]map[string]interface{}, 0, len(pods.Items))
+	podInfos := make([]map[string]any, 0, len(pods.Items))
 	for _, pod := range pods.Items {
-		podInfo := map[string]interface{}{
+		podInfo := map[string]any{
 			"name":      pod.Name,
 			"namespace": pod.Namespace,
 			"status":    string(pod.Status.Phase),
@@ -521,10 +519,10 @@ func (s *Server) getPodLogs(w http.ResponseWriter, r *http.Request, envName, pod
 		s.jsonError(w, fmt.Sprintf("Failed to get logs: %v", err), http.StatusInternalServerError)
 		return
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	w.Header().Set("Content-Type", "text/plain")
-	io.Copy(w, stream)
+	_, _ = io.Copy(w, stream)
 }
 
 func (s *Server) handlePodLogsStream(w http.ResponseWriter, r *http.Request) {
@@ -554,10 +552,10 @@ func (s *Server) streamPodLogs(w http.ResponseWriter, r *http.Request, envName, 
 		log.Error(err, "Failed to upgrade to WebSocket")
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if s.kubeClient == nil {
-		conn.WriteMessage(websocket.TextMessage, []byte("Error: Kubernetes client not available"))
+		_ = conn.WriteMessage(websocket.TextMessage, []byte("Error: Kubernetes client not available"))
 		return
 	}
 
@@ -568,10 +566,10 @@ func (s *Server) streamPodLogs(w http.ResponseWriter, r *http.Request, envName, 
 	req := s.kubeClient.CoreV1().Pods(env.Status.ActiveNamespace).GetLogs(podName, opts)
 	stream, err := req.Stream(r.Context())
 	if err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: %v", err)))
+		_ = conn.WriteMessage(websocket.TextMessage, fmt.Appendf(nil, "Error: %v", err))
 		return
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	// Stream logs to WebSocket
 	buf := make([]byte, 4096)
@@ -579,7 +577,7 @@ func (s *Server) streamPodLogs(w http.ResponseWriter, r *http.Request, envName, 
 		n, err := stream.Read(buf)
 		if err != nil {
 			if err != io.EOF {
-				conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: %v", err)))
+				_ = conn.WriteMessage(websocket.TextMessage, fmt.Appendf(nil, "Error: %v", err))
 			}
 			break
 		}
@@ -637,7 +635,7 @@ func (s *Server) extendTTL(w http.ResponseWriter, r *http.Request, envName strin
 		return
 	}
 
-	s.jsonResponse(w, map[string]interface{}{
+	s.jsonResponse(w, map[string]any{
 		"status":        "extended",
 		"newExpiration": env.Status.ExpirationTime,
 		"ttlRemaining":  time.Until(env.Status.ExpirationTime.Time).Round(time.Second).String(),
@@ -648,7 +646,7 @@ func (s *Server) extendTTL(w http.ResponseWriter, r *http.Request, envName strin
 // Helper Functions
 // =============================================================================
 
-func (s *Server) renderTemplate(w http.ResponseWriter, name string, data interface{}) {
+func (s *Server) renderTemplate(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// First lookup the named template, then execute it
 	tmpl := s.templates.Lookup(name)
@@ -663,15 +661,15 @@ func (s *Server) renderTemplate(w http.ResponseWriter, name string, data interfa
 	}
 }
 
-func (s *Server) jsonResponse(w http.ResponseWriter, data interface{}) {
+func (s *Server) jsonResponse(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
 }
 
 func (s *Server) jsonError(w http.ResponseWriter, message string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": message})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
 func isPodReady(pod *corev1.Pod) bool {
