@@ -32,7 +32,7 @@ spec:
             {{- if .Values.config.leaderElect }}
             - --leader-elect
             {{- end }}
-            {{- if ne .Values.config.metricsBindAddress "0" }}
+            {{- if ne (toString .Values.config.metricsBindAddress) "0" }}
             - --metrics-bind-address={{ .Values.config.metricsBindAddress }}
             {{- end }}
             - --ui-bind-address={{ .Values.config.uiBindAddress }}

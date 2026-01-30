@@ -7,6 +7,10 @@ on:
   pull_request:
     branches: [main, '**']
 
+permissions:
+  contents: read
+  checks: write
+
 jobs:
   lint:
     name: Lint & Static Analysis
@@ -76,51 +80,55 @@ jobs:
           report_individual_runs: false
 
   e2e:
-    name: E2E (Kind + Helm)
+    name: E2E (Go suite: Kustomize + Helm)
     runs-on: ubuntu-latest
     needs: [lint, unit-tests]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Create Kind cluster
-        uses: helm/kind-action@v1.9.0
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          cluster_name: e2e
+          go-version-file: go.mod
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Install Kind
+        run: |
+          curl -Lo ./kind "https://kind.sigs.k8s.io/dl/latest/kind-linux-$(go env GOARCH)"
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
 
-      - name: Build operator image
-        uses: docker/build-push-action@v6
+      - name: Install Helm
+        uses: azure/setup-helm@v4
         with:
-          context: .
-          file: ./Dockerfile
-          push: false
-          load: true
-          tags: ephemeral-operator:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          version: "v3.17.0"
 
-      - name: Load image into Kind
-        run: |
-          kind load docker-image ephemeral-operator:ci --name e2e
+      - name: Install gotestsum
+        run: go install gotest.tools/gotestsum@latest
 
-      - name: Install Helm chart
+      - name: Setup e2e (Kind cluster, manifests)
         run: |
-          helm upgrade --install ephemeral-operator ./charts/ephemeral-operator \
-            --namespace ephemeral-operator-system \
-            --create-namespace \
-            --set image.repository=ephemeral-operator \
-            --set image.tag=ci \
-            --set image.pullPolicy=IfNotPresent
+          make setup-test-e2e
+          make manifests generate fmt vet
 
-      - name: Verify operator Pod
-        run: |
-          kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=ephemeral-operator \
-            -n ephemeral-operator-system --timeout=120s
+      - name: Run e2e tests (Manager + Helm chart)
+        run: gotestsum --junitfile junit-e2e.xml -- go test -tags=e2e ./test/e2e/ -v -ginkgo.v
+        env:
+          CERT_MANAGER_INSTALL_SKIP: "true"
+          KIND_CLUSTER: "ephemeral-operator-test-e2e"
 
-      - name: Verify CRDs
-        run: |
-          kubectl get crd ephemeralenvs.ephemeral.ephemeralenv.io -o name
-          kubectl get crd environmenttemplates.ephemeral.ephemeralenv.io -o name
+      - name: Publish E2E Test Results (PR comment)
+        if: always() && github.event_name == 'pull_request'
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        with:
+          files: junit-e2e.xml
+          check_name: E2E Test Results
+          comment_title: E2E Test Results
+          comment_mode: always
+          fail_on: test failures
+          report_individual_runs: false
+
+      - name: Cleanup Kind cluster
+        if: always()
+        run: make cleanup-test-e2e

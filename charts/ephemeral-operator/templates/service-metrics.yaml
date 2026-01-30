@@ -1,4 +1,4 @@
-{{- if and (ne .Values.config.metricsBindAddress "0") .Values.config.metricsBindAddress }}
+{{- if and .Values.config.metricsBindAddress (ne (toString .Values.config.metricsBindAddress) "0") }}
 apiVersion: v1
 kind: Service
 metadata:
