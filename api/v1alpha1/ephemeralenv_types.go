@@ -54,6 +54,16 @@ type EphemeralEnvSpec struct {
 	// +optional
 	Isolation *bool `json:"isolation,omitempty"`
 
+	// ServicePort is the application port used for port-based service discovery.
+	// When set, the operator discovers the backend Service in the environment namespace
+	// by finding a Service that exposes this port (ignoring Headless, ExternalName, and metrics services).
+	// The discovered service name is used for HTTPRoute instead of Gateway.ServiceName.
+	// When not set, Gateway.ServiceName is used directly.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	ServicePort *int32 `json:"servicePort,omitempty"`
+
 	// Gateway configures the Gateway API HTTPRoute for external access
 	// +kubebuilder:validation:Required
 	Gateway GatewaySpec `json:"gateway"`

@@ -286,6 +286,11 @@ func (in *EphemeralEnvSpec) DeepCopyInto(out *EphemeralEnvSpec) {
 		*out = new(bool)
 		**out = **in
 	}
+	if in.ServicePort != nil {
+		in, out := &in.ServicePort, &out.ServicePort
+		*out = new(int32)
+		**out = **in
+	}
 	out.Gateway = in.Gateway
 }
 

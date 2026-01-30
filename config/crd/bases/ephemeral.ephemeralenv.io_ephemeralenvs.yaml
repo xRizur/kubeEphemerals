@@ -188,6 +188,17 @@ spec:
                   Isolation enables NetworkPolicy to isolate the environment.
                   When true, a deny-all NetworkPolicy is created in the namespace.
                 type: boolean
+              servicePort:
+                description: |-
+                  ServicePort is the application port used for port-based service discovery.
+                  When set, the operator discovers the backend Service in the environment namespace
+                  by finding a Service that exposes this port (ignoring Headless, ExternalName, and metrics services).
+                  The discovered service name is used for HTTPRoute instead of Gateway.ServiceName.
+                  When not set, Gateway.ServiceName is used directly.
+                format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
               templateRef:
                 description: |-
                   TemplateRef references an EnvironmentTemplate to use as the base configuration.
