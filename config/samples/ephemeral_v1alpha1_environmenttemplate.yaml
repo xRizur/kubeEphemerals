@@ -1,0 +1,110 @@
+apiVersion: ephemeral.ephemeralenv.io/v1alpha1
+kind: EnvironmentTemplate
+metadata:
+  name: fullstack-webapp
+  namespace: ephemeral-system
+  labels:
+    tier: fullstack
+    complexity: advanced
+spec:
+  displayName: Full Stack Web Application
+  description: |
+    A complete web application stack with frontend (Nginx), 
+    backend API (placeholder), and database (PostgreSQL).
+    Perfect for testing full application workflows.
+  icon: "🚀"
+  tags:
+    - fullstack
+    - web
+    - database
+    - production-like
+  defaultTTL: "4h"
+  defaultGateway:
+    name: ephemeral-gateway
+    namespace: gateway-system
+  components:
+    - name: frontend
+      repository: https://charts.bitnami.com/bitnami
+      chart: nginx
+      version: "15.0.0"
+      serviceName: frontend-nginx
+      servicePort: 80
+      primary: true
+      values:
+        service:
+          type: ClusterIP
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+    - name: database
+      repository: https://charts.bitnami.com/bitnami
+      chart: postgresql
+      version: "12.0.0"
+      serviceName: postgresql
+      servicePort: 5432
+      primary: false
+      values:
+        auth:
+          username: appuser
+          database: appdb
+        resources:
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+apiVersion: ephemeral.ephemeralenv.io/v1alpha1
+kind: EnvironmentTemplate
+metadata:
+  name: simple-nginx
+  namespace: ephemeral-system
+  labels:
+    tier: frontend
+    complexity: simple
+spec:
+  displayName: Simple Nginx
+  description: A simple nginx deployment for quick testing
+  icon: "🌐"
+  tags:
+    - web
+    - simple
+    - quick-start
+  defaultTTL: "1h"
+  components:
+    - name: nginx
+      repository: https://charts.bitnami.com/bitnami
+      chart: nginx
+      version: "15.0.0"
+      serviceName: nginx
+      servicePort: 80
+      primary: true
+---
+apiVersion: ephemeral.ephemeralenv.io/v1alpha1
+kind: EnvironmentTemplate
+metadata:
+  name: redis-cache
+  namespace: ephemeral-system
+  labels:
+    tier: database
+    complexity: simple
+spec:
+  displayName: Redis Cache
+  description: Redis in-memory cache for testing caching scenarios
+  icon: "💾"
+  tags:
+    - database
+    - cache
+    - redis
+  defaultTTL: "2h"
+  components:
+    - name: redis
+      repository: https://charts.bitnami.com/bitnami
+      chart: redis
+      version: "17.0.0"
+      serviceName: redis-master
+      servicePort: 6379
+      primary: true
+      values:
+        architecture: standalone
+        auth:
+          enabled: false

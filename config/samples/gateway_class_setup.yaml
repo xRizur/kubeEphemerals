@@ -1,0 +1,71 @@
+# Gateway API Setup for Ephemeral Operator
+#
+# This manifest creates:
+# 1. GatewayClass "eg" - Uses Envoy Gateway as the controller
+# 2. Gateway "main-gateway" - Listens on HTTP port 80, allows routes from all namespaces
+#
+# Prerequisites:
+# - Gateway API CRDs installed
+# - Envoy Gateway controller running
+#
+# Apply with: kubectl apply -f config/samples/gateway_class_setup.yaml
+
+---
+# GatewayClass defines the controller that will manage Gateways of this class.
+# Using Envoy Gateway as our Gateway API implementation.
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: eg
+  labels:
+    app.kubernetes.io/name: envoy-gateway
+    app.kubernetes.io/part-of: ephemeral-operator
+spec:
+  # Envoy Gateway controller name
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  description: "Envoy Gateway class for ephemeral environments"
+
+---
+# Gateway is the entry point for external traffic.
+# HTTPRoutes created by the EphemeralEnv controller will attach to this Gateway.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: main-gateway
+  namespace: default
+  labels:
+    app.kubernetes.io/name: main-gateway
+    app.kubernetes.io/part-of: ephemeral-operator
+  annotations:
+    # Envoy Gateway specific annotations can be added here
+    # For example, to configure infrastructure settings
+spec:
+  gatewayClassName: eg
+  listeners:
+    # HTTP listener on port 80
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: "*.preview.example.com"
+      allowedRoutes:
+        namespaces:
+          # Allow HTTPRoutes from ALL namespaces to attach to this Gateway.
+          # This is required because:
+          # 1. The Gateway lives in 'default' namespace
+          # 2. HTTPRoutes are created in 'gateway-system' namespace by our operator
+          # 3. Backend Services live in 'env-*' namespaces
+          from: All
+        kinds:
+          - kind: HTTPRoute
+            group: gateway.networking.k8s.io
+
+---
+# Optional: Create gateway-system namespace if it doesn't exist
+# This is where our operator creates HTTPRoutes
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gateway-system
+  labels:
+    app.kubernetes.io/name: gateway-system
+    app.kubernetes.io/part-of: ephemeral-operator

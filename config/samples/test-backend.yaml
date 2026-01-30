@@ -1,0 +1,43 @@
+# Test backend for EphemeralEnv pr-123-demo
+# This creates a simple nginx deployment that the HTTPRoute can route to
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: env-pr-123-demo
+  labels:
+    app: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        resources:
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: env-pr-123-demo
+  labels:
+    app: web
+spec:
+  selector:
+    app: web
+  ports:
+  - port: 80
+    targetPort: 80

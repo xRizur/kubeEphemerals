@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^wsl -- ps aux \\| grep 132569$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

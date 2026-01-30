@@ -1,0 +1,425 @@
+{{define "env_dashboard.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Ephemeral Operator</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --border-color: #30363d;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-yellow: #d29922;
+            --accent-red: #f85149;
+            --accent-purple: #a371f7;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+        header { background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+        header h1 { font-size: 20px; font-weight: 600; display: flex; align-items: center; gap: 12px; }
+        header h1 .logo { font-size: 24px; }
+        nav { display: flex; gap: 16px; }
+        nav a { color: var(--text-secondary); text-decoration: none; font-size: 14px; padding: 8px 12px; border-radius: 6px; transition: all 0.2s; }
+        nav a:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+        h2 { font-size: 24px; font-weight: 600; margin-bottom: 16px; }
+        .card { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--border-color); }
+        .card-title { font-size: 16px; font-weight: 600; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border-color); }
+        th { font-weight: 600; color: var(--text-secondary); font-size: 12px; text-transform: uppercase; }
+        tr:hover { background: var(--bg-tertiary); }
+        .status-badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+        .status-active { background: rgba(63, 185, 80, 0.15); color: var(--accent-green); }
+        .status-pending { background: rgba(210, 153, 34, 0.15); color: var(--accent-yellow); }
+        .status-failed { background: rgba(248, 81, 73, 0.15); color: var(--accent-red); }
+        .status-expired { background: rgba(139, 148, 158, 0.15); color: var(--text-secondary); }
+        .status-unknown { background: rgba(163, 113, 247, 0.15); color: var(--accent-purple); }
+        .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; text-decoration: none; }
+        .btn-primary { background: var(--accent-green); border-color: var(--accent-green); color: #fff; }
+        .btn-primary:hover { background: #2ea043; }
+        .btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); }
+        .btn-secondary:hover { background: var(--border-color); }
+        .link { color: var(--accent-blue); text-decoration: none; }
+        .link:hover { text-decoration: underline; }
+        .actions { display: flex; gap: 8px; }
+        .icon-btn { padding: 6px 10px; background: transparent; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-secondary); cursor: pointer; transition: all 0.2s; }
+        .icon-btn:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+        .icon-btn.danger:hover { color: var(--accent-red); border-color: var(--accent-red); }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 1000; align-items: center; justify-content: center; }
+        .modal.active { display: flex; }
+        .modal-content { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px; max-width: 500px; width: 100%; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-title { font-size: 18px; font-weight: 600; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 8px; }
+        .form-group input, .form-group select { width: 100%; padding: 10px 12px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 14px; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--accent-blue); }
+        .form-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
+        footer { text-align: center; padding: 24px; color: var(--text-secondary); font-size: 12px; }
+        
+        /* Environment dashboard specific styles */
+        .env-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+        .env-info h2 { margin-bottom: 8px; }
+        .env-meta { display: flex; gap: 24px; color: var(--text-secondary); font-size: 14px; }
+        .env-meta-item { display: flex; align-items: center; gap: 6px; }
+        .env-controls { display: flex; gap: 12px; }
+        .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; }
+        .tab { padding: 12px 20px; border: none; background: transparent; color: var(--text-secondary); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; font-size: 14px; transition: all 0.2s; }
+        .tab:hover { color: var(--text-primary); }
+        .tab.active { color: var(--text-primary); border-bottom-color: var(--accent-blue); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .log-container { background: #0d1117; border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; font-size: 12px; line-height: 1.5; height: 500px; overflow-y: auto; }
+        .log-line { white-space: pre-wrap; word-break: break-all; }
+        .log-line:hover { background: var(--bg-tertiary); }
+        .pod-selector { display: flex; gap: 12px; margin-bottom: 16px; align-items: center; }
+        .pod-selector select { padding: 8px 12px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 14px; min-width: 200px; }
+        .config-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+        .config-item { background: var(--bg-tertiary); border-radius: 8px; padding: 16px; }
+        .config-item label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+        .config-item pre { font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; font-size: 13px; white-space: pre-wrap; word-break: break-all; }
+        .condition-list { display: flex; flex-direction: column; gap: 12px; }
+        .condition { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: var(--bg-tertiary); border-radius: 8px; }
+        .condition-icon { font-size: 20px; }
+        .condition-info { flex: 1; }
+        .condition-type { font-weight: 600; margin-bottom: 2px; }
+        .condition-reason { font-size: 13px; color: var(--text-secondary); }
+        .condition-time { font-size: 12px; color: var(--text-secondary); }
+    </style>
+</head>
+<body>
+    <header>
+        <h1><span class="logo">⚡</span>Ephemeral Operator</h1>
+        <nav><a href="/">🏠 Dashboard</a><a href="/api/envs">📋 API</a></nav>
+    </header>
+    <div class="container">
+        <div class="env-header">
+            <div class="env-info">
+                <h2><a href="/" class="link" style="text-decoration: none;">←</a> {{.Environment.Name}}</h2>
+                <div class="env-meta">
+                    <div class="env-meta-item">
+                        <span class="status-badge {{statusClass .Environment.Status.Phase}}">{{.Environment.Status.Phase}}</span>
+                    </div>
+                    <div class="env-meta-item">📁 {{.Environment.Status.ActiveNamespace}}</div>
+                    <div class="env-meta-item">⏰ TTL: {{timeUntil .Environment.Status.ExpirationTime}}</div>
+                    {{if .Environment.Status.HelmRelease}}
+                    <div class="env-meta-item">📦 {{.Environment.Status.HelmRelease}}</div>
+                    {{end}}
+                </div>
+            </div>
+            <div class="env-controls">
+                <button class="btn btn-secondary" onclick="openExtendModal()">⏰ Extend TTL</button>
+                {{if .Environment.Status.AccessURL}}
+                <a href="{{.Environment.Status.AccessURL}}" target="_blank" class="btn btn-primary">🔗 Open App</a>
+                {{end}}
+            </div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('overview')">📊 Overview</button>
+            <button class="tab" onclick="switchTab('pods')">🐳 Pods</button>
+            <button class="tab" onclick="switchTab('logs')">📜 Logs</button>
+            <button class="tab" onclick="switchTab('config')">⚙️ Config</button>
+        </div>
+
+        <!-- Overview Tab -->
+        <div id="tab-overview" class="tab-content active">
+            <div class="card">
+                <div class="card-header"><h3 class="card-title">Conditions</h3></div>
+                <div class="condition-list">
+                    {{range .Environment.Status.Conditions}}
+                    <div class="condition">
+                        <div class="condition-icon">{{if eq .Status "True"}}✅{{else if eq .Status "False"}}❌{{else}}⏳{{end}}</div>
+                        <div class="condition-info">
+                            <div class="condition-type">{{.Type}}</div>
+                            <div class="condition-reason">{{.Reason}}: {{.Message}}</div>
+                        </div>
+                        <div class="condition-time">{{timeSince .LastTransitionTime}}</div>
+                    </div>
+                    {{else}}
+                    <p style="color: var(--text-secondary)">No conditions available</p>
+                    {{end}}
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header"><h3 class="card-title">Gateway & Routing</h3></div>
+                <div class="config-grid">
+                    <div class="config-item">
+                        <label>Access URL</label>
+                        <pre>{{.Environment.Status.AccessURL}}</pre>
+                    </div>
+                    <div class="config-item">
+                        <label>Gateway</label>
+                        <pre>{{.Environment.Spec.Gateway.Namespace}}/{{.Environment.Spec.Gateway.Name}}</pre>
+                    </div>
+                    <div class="config-item">
+                        <label>Target Service</label>
+                        <pre>{{.Environment.Spec.Gateway.ServiceName}}:{{.Environment.Spec.Gateway.TargetPort}}</pre>
+                    </div>
+                </div>
+            </div>
+
+            {{if .Environment.Status.ComponentStatuses}}
+            <div class="card">
+                <div class="card-header"><h3 class="card-title">Deployed Components</h3></div>
+                <div class="config-grid">
+                    {{range .Environment.Status.ComponentStatuses}}
+                    <div class="config-item" style="display: flex; align-items: center; gap: 12px;">
+                        <span style="font-size: 24px;">{{if eq .Status "Deployed"}}✅{{else if eq .Status "Error"}}❌{{else}}⏳{{end}}</span>
+                        <div>
+                            <label>{{.Name}}</label>
+                            <pre style="font-size: 11px;">{{.ReleaseName}}</pre>
+                        </div>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+            {{end}}
+        </div>
+
+        <!-- Pods Tab -->
+        <div id="tab-pods" class="tab-content">
+            <div class="card">
+                <table id="podsTable">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Status</th>
+                            <th>Ready</th>
+                            <th>Restarts</th>
+                            <th>Age</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Pods}}
+                        <tr data-pod="{{.Name}}">
+                            <td>{{.Name}}</td>
+                            <td><span class="status-badge {{if eq .Status.Phase "Running"}}status-active{{else}}status-pending{{end}}">{{.Status.Phase}}</span></td>
+                            <td>{{range .Status.ContainerStatuses}}{{if .Ready}}✅{{else}}❌{{end}}{{end}}</td>
+                            <td>{{$restarts := 0}}{{range .Status.ContainerStatuses}}{{$restarts = .RestartCount}}{{end}}{{$restarts}}</td>
+                            <td>{{timeSince .CreationTimestamp}}</td>
+                            <td>
+                                <div class="actions">
+                                    <button class="icon-btn" title="View Logs" onclick="viewPodLogs('{{.Name}}')">📜</button>
+                                    <button class="icon-btn danger" title="Restart" onclick="restartPod('{{.Name}}')">🔄</button>
+                                </div>
+                            </td>
+                        </tr>
+                        {{else}}
+                        <tr><td colspan="6"><div class="empty-state"><p>No pods found in this environment</p></div></td></tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div id="tab-logs" class="tab-content">
+            <div class="pod-selector">
+                <label>Pod:</label>
+                <select id="logPodSelect" onchange="loadPodLogs()">
+                    <option value="">Select a pod...</option>
+                    {{range .Pods}}<option value="{{.Name}}">{{.Name}}</option>{{end}}
+                </select>
+                <button class="btn btn-secondary" onclick="toggleStreaming()"><span id="streamBtn">▶️ Stream</span></button>
+            </div>
+            <div id="logContainer" class="log-container">
+                <div style="color: var(--text-secondary); padding: 20px; text-align: center;">Select a pod to view logs</div>
+            </div>
+        </div>
+
+        <!-- Config Tab -->
+        <div id="tab-config" class="tab-content">
+            {{if .Environment.Spec.TemplateRef}}
+            <div class="card">
+                <div class="card-header"><h3 class="card-title">Template Reference</h3></div>
+                <div class="config-grid">
+                    <div class="config-item"><label>Template Name</label><pre>{{.Environment.Spec.TemplateRef.Name}}</pre></div>
+                    <div class="config-item"><label>Template Namespace</label><pre>{{.Environment.Spec.TemplateRef.Namespace}}</pre></div>
+                </div>
+            </div>
+            {{end}}
+            {{if .Environment.Status.ComponentStatuses}}
+            <div class="card">
+                <div class="card-header"><h3 class="card-title">Deployed Components</h3></div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Component</th>
+                            <th>Release Name</th>
+                            <th>Status</th>
+                            <th>Last Deployed</th>
+                            <th>Message</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Environment.Status.ComponentStatuses}}
+                        <tr>
+                            <td>{{.Name}}</td>
+                            <td>{{.ReleaseName}}</td>
+                            <td><span class="status-badge {{if eq .Status "Deployed"}}status-active{{else if eq .Status "Error"}}status-failed{{else}}status-pending{{end}}">{{.Status}}</span></td>
+                            <td>{{if .LastDeployed}}{{timeSince .LastDeployed}}{{else}}—{{end}}</td>
+                            <td>{{.Message}}</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+            {{end}}
+            {{if .Environment.Spec.Helm}}
+            <div class="card">
+                <div class="card-header"><h3 class="card-title">Helm Configuration</h3></div>
+                <div class="config-grid">
+                    <div class="config-item"><label>Repository</label><pre>{{.Environment.Spec.Helm.Repository}}</pre></div>
+                    <div class="config-item"><label>Chart</label><pre>{{.Environment.Spec.Helm.Chart}}</pre></div>
+                    <div class="config-item"><label>Version</label><pre>{{.Environment.Spec.Helm.Version}}</pre></div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header"><h3 class="card-title">Values</h3></div>
+                <div class="config-item"><pre>{{json .Environment.Spec.Helm.Values}}</pre></div>
+            </div>
+            {{end}}
+            <div class="card">
+                <div class="card-header"><h3 class="card-title">Full Spec</h3></div>
+                <div class="config-item"><pre>{{json .Environment.Spec}}</pre></div>
+            </div>
+        </div>
+
+        <!-- Extend TTL Modal -->
+        <div id="extendModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 class="modal-title">Extend TTL</h3>
+                    <button class="icon-btn" onclick="closeExtendModal()">✕</button>
+                </div>
+                <form id="extendForm" onsubmit="extendTTL(event)">
+                    <div class="form-group">
+                        <label for="extendDuration">Extend by</label>
+                        <select id="extendDuration" name="duration">
+                            <option value="30m">30 minutes</option>
+                            <option value="1h" selected>1 hour</option>
+                            <option value="2h">2 hours</option>
+                            <option value="4h">4 hours</option>
+                            <option value="12h">12 hours</option>
+                            <option value="24h">24 hours</option>
+                        </select>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeExtendModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Extend</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <footer>Ephemeral Operator &copy; 2026 | Kubernetes Native Preview Environments</footer>
+    
+    <script>
+        const envName = '{{.Environment.Name}}';
+        let ws = null;
+        let streaming = false;
+        
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelector(`.tab[onclick="switchTab('${tabName}')"]`).classList.add('active');
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+        }
+        
+        async function loadPodLogs() {
+            const podName = document.getElementById('logPodSelect').value;
+            const container = document.getElementById('logContainer');
+            if (!podName) {
+                container.innerHTML = '<div style="color: var(--text-secondary); padding: 20px; text-align: center;">Select a pod to view logs</div>';
+                return;
+            }
+            try {
+                const response = await fetch(`/api/envs/${envName}/pods/${podName}/logs`);
+                if (response.ok) {
+                    const logs = await response.text();
+                    container.innerHTML = logs.split('\n').map(line => `<div class="log-line">${escapeHtml(line)}</div>`).join('');
+                    container.scrollTop = container.scrollHeight;
+                } else {
+                    container.innerHTML = '<div style="color: var(--accent-red);">Failed to load logs</div>';
+                }
+            } catch (err) {
+                container.innerHTML = `<div style="color: var(--accent-red);">Error: ${err.message}</div>`;
+            }
+        }
+        
+        function viewPodLogs(podName) {
+            switchTab('logs');
+            document.getElementById('logPodSelect').value = podName;
+            loadPodLogs();
+        }
+        
+        function toggleStreaming() {
+            if (streaming) { stopStreaming(); } else { startStreaming(); }
+        }
+        
+        function startStreaming() {
+            const podName = document.getElementById('logPodSelect').value;
+            if (!podName) { alert('Select a pod first'); return; }
+            const container = document.getElementById('logContainer');
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}/api/envs/${envName}/pods/${podName}/logs/stream`);
+            ws.onopen = () => { streaming = true; document.getElementById('streamBtn').textContent = '⏹️ Stop'; container.innerHTML = ''; };
+            ws.onmessage = (event) => {
+                const lines = event.data.split('\n');
+                lines.forEach(line => { const div = document.createElement('div'); div.className = 'log-line'; div.textContent = line; container.appendChild(div); });
+                container.scrollTop = container.scrollHeight;
+            };
+            ws.onerror = (error) => { console.error('WebSocket error:', error); stopStreaming(); };
+            ws.onclose = () => { stopStreaming(); };
+        }
+        
+        function stopStreaming() {
+            if (ws) { ws.close(); ws = null; }
+            streaming = false;
+            document.getElementById('streamBtn').textContent = '▶️ Stream';
+        }
+        
+        async function restartPod(podName) {
+            if (!confirm(`Restart pod "${podName}"?`)) return;
+            try {
+                const response = await fetch(`/api/envs/${envName}/pods/${podName}/restart`, { method: 'POST' });
+                if (response.ok) {
+                    document.querySelector(`tr[data-pod="${podName}"]`).style.opacity = '0.5';
+                    setTimeout(() => window.location.reload(), 2000);
+                } else { const error = await response.json(); alert('Error: ' + error.error); }
+            } catch (err) { alert('Error: ' + err.message); }
+        }
+        
+        function openExtendModal() { document.getElementById('extendModal').classList.add('active'); }
+        function closeExtendModal() { document.getElementById('extendModal').classList.remove('active'); }
+        
+        async function extendTTL(event) {
+            event.preventDefault();
+            const duration = document.getElementById('extendDuration').value;
+            try {
+                const response = await fetch(`/api/envs/${envName}/extend-ttl`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ duration })
+                });
+                if (response.ok) { closeExtendModal(); window.location.reload(); }
+                else { const error = await response.json(); alert('Error: ' + error.error); }
+            } catch (err) { alert('Error: ' + err.message); }
+        }
+        
+        function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
+    </script>
+</body>
+</html>
+{{end}}

@@ -1,0 +1,29 @@
+# EphemeralEnv for E2E test - Podinfo deployment
+# Podinfo is a lightweight demo app with a nice web UI
+# https://github.com/stefanprodan/podinfo
+apiVersion: ephemeral.ephemeralenv.io/v1alpha1
+kind: EphemeralEnv
+metadata:
+  name: pr-e2e-test
+spec:
+  # Short TTL for testing (10 minutes)
+  ttl: "10m"
+  
+  # Disable isolation for testing
+  isolation: false
+  
+  # Helm chart - Podinfo (lightweight, has nice UI)
+  helm:
+    repository: "https://stefanprodan.github.io/podinfo"
+    chart: "podinfo"
+    version: "6.9.4"
+    # No custom values needed - defaults work great
+  
+  # Gateway API configuration  
+  gateway:
+    name: "main-gateway"
+    namespace: "default"
+    domainPrefix: "pr-e2e-test"
+    # Podinfo creates a service named "{release-name}"
+    serviceName: "env-pr-e2e-test-podinfo"
+    targetPort: 9898  # Podinfo uses port 9898

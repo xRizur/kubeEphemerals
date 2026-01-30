@@ -1,0 +1,20 @@
+# More info: https://docs.docker.com/engine/reference/builder/#dockerignore-file
+# Ignore everything by default and re-include only needed files
+**
+
+# Re-include source directories
+!cmd/
+!api/
+!internal/
+
+# Re-include Go files
+!**/*.go
+**/*_test.go
+
+# Re-include Go module files
+!go.mod
+!go.sum
+
+# Re-include template files for UI
+!internal/ui/templates/
+!internal/ui/static/

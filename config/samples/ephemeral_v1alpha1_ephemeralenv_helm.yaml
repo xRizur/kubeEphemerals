@@ -1,0 +1,38 @@
+# EphemeralEnv with real Helm chart deployment
+# This will deploy nginx from Bitnami Helm repository
+apiVersion: ephemeral.ephemeralenv.io/v1alpha1
+kind: EphemeralEnv
+metadata:
+  labels:
+    app.kubernetes.io/name: ephemeral-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: pr-helm-test
+spec:
+  # Short TTL for testing (10 minutes)
+  ttl: "10m"
+  
+  # Enable network isolation
+  isolation: false  # Disable for testing so Helm can pull images
+  
+  # Helm chart configuration - Bitnami nginx
+  helm:
+    repository: "https://charts.bitnami.com/bitnami"
+    chart: "nginx"
+    version: "18.3.6"
+    values:
+      # Single replica for testing
+      replicaCount: "1"
+      # Use smaller resource limits
+      resources.limits.memory: "128Mi"
+      resources.limits.cpu: "100m"
+  
+  # Gateway API configuration
+  # Note: serviceName should match what the Helm chart creates
+  # Bitnami nginx creates a service named "{release-name}-nginx"
+  # Our release will be "env-pr-helm-test", so service is "env-pr-helm-test-nginx"
+  gateway:
+    name: "main-gateway"
+    namespace: "default"
+    domainPrefix: "pr-helm-test"
+    serviceName: "env-pr-helm-test-nginx"
+    targetPort: 80

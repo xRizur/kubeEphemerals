@@ -1,0 +1,846 @@
+{{define "global_content"}}
+<!-- Tab Navigation -->
+<div class="tabs" style="margin-bottom: 24px; border-bottom: 1px solid var(--border-color);">
+    <button class="tab-btn active" onclick="showTab('environments')">🏠 Environments</button>
+    <button class="tab-btn" onclick="showTab('templates')">📦 Templates</button>
+</div>
+
+<!-- Environments Tab -->
+<div id="environments-tab" class="tab-content active">
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <h2>Ephemeral Environments</h2>
+    <button class="btn btn-primary" onclick="openCreateModal()">
+        ➕ Create Environment
+    </button>
+</div>
+
+<div class="card">
+    <table id="envTable">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Namespace</th>
+                <th>TTL Remaining</th>
+                <th>Helm Release</th>
+                <th>Access URL</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{if .Environments}}
+                {{range .Environments}}
+                <tr data-name="{{.Name}}">
+                    <td>
+                        <a href="/env/{{.Name}}" class="link">{{.Name}}</a>
+                    </td>
+                    <td>
+                        <span class="status-badge {{statusClass .Status.Phase}}">{{.Status.Phase}}</span>
+                    </td>
+                    <td>{{.Status.ActiveNamespace}}</td>
+                    <td>{{timeUntil .Status.ExpirationTime}}</td>
+                    <td>{{.Status.HelmRelease}}</td>
+                    <td>
+                        {{if .Status.AccessURL}}
+                        <a href="{{.Status.AccessURL}}" target="_blank" class="link">{{.Status.AccessURL}}</a>
+                        {{else}}
+                        <span style="color: var(--text-secondary)">—</span>
+                        {{end}}
+                    </td>
+                    <td>
+                        <div class="actions">
+                            <button class="icon-btn" title="View Details" onclick="window.location='/env/{{.Name}}'">👁️</button>
+                            <button class="icon-btn" title="Extend TTL" onclick="openExtendModal('{{.Name}}')">⏰</button>
+                            <button class="icon-btn danger" title="Delete" onclick="deleteEnv('{{.Name}}')">🗑️</button>
+                        </div>
+                    </td>
+                </tr>
+                {{end}}
+            {{else}}
+                <tr>
+                    <td colspan="7">
+                        <div class="empty-state">
+                            <h3>No environments yet</h3>
+                            <p>Create your first ephemeral environment to get started.</p>
+                        </div>
+                    </td>
+                </tr>
+            {{end}}
+        </tbody>
+    </table>
+</div>
+</div>
+
+<!-- Templates Tab -->
+<div id="templates-tab" class="tab-content" style="display: none;">
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+    <h2>Environment Templates</h2>
+    <button class="btn btn-primary" onclick="openCreateTemplateModal()">
+        ➕ Create Template
+    </button>
+</div>
+
+<div id="templatesGrid" class="templates-grid">
+    <div class="empty-state">
+        <h3>Loading templates...</h3>
+    </div>
+</div>
+</div>
+
+<!-- Create Environment Modal -->
+<div id="createModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Create Environment</h3>
+            <button class="icon-btn" onclick="closeCreateModal()">✕</button>
+        </div>
+        <form id="createForm" onsubmit="createEnv(event)">
+            <!-- Template Selection -->
+            <div class="form-group">
+                <label for="templateSelect">Use Template (Optional)</label>
+                <select id="templateSelect" name="template" onchange="onTemplateSelect(this.value)">
+                    <option value="">-- Manual Configuration --</option>
+                </select>
+                <small style="color: var(--text-secondary); font-size: 12px; margin-top: 4px; display: block;">
+                    Select a template to auto-fill configuration or configure manually below
+                </small>
+            </div>
+
+            <div id="manualConfig">
+            <div class="form-group">
+                <label for="envName">Environment Name</label>
+                <input type="text" id="envName" name="name" required pattern="[a-z0-9-]+" placeholder="pr-123">
+            </div>
+            <div class="form-group">
+                <label for="ttl">TTL</label>
+                <input type="text" id="ttl" name="ttl" value="1h" placeholder="1h, 30m, 24h">
+            </div>
+
+            <details id="helmDetails" open>
+                <summary style="cursor: pointer; font-weight: 500; margin-bottom: 12px; color: var(--accent-blue);">
+                    🎯 Helm Configuration
+                </summary>
+            <div class="form-group">
+                <label for="helmRepo">Helm Repository</label>
+                <input type="text" id="helmRepo" name="helmRepo" placeholder="https://charts.example.com">
+            </div>
+            <div class="form-group">
+                <label for="helmChart">Helm Chart</label>
+                <input type="text" id="helmChart" name="helmChart" placeholder="my-app">
+            </div>
+            <div class="form-group">
+                <label for="helmVersion">Chart Version</label>
+                <input type="text" id="helmVersion" name="helmVersion" placeholder="1.0.0">
+            </div>
+            </details>
+
+            <details id="gatewayDetails" open>
+                <summary style="cursor: pointer; font-weight: 500; margin-bottom: 12px; color: var(--accent-blue);">
+                    🌐 Gateway Configuration
+                </summary>
+            <div class="form-group">
+                <label for="gatewayName">Gateway Name</label>
+                <input type="text" id="gatewayName" name="gatewayName" value="main-gateway" placeholder="main-gateway">
+            </div>
+            <div class="form-group">
+                <label for="gatewayNamespace">Gateway Namespace</label>
+                <input type="text" id="gatewayNamespace" name="gatewayNamespace" value="default" placeholder="default">
+            </div>
+            <div class="form-group">
+                <label for="serviceName">Service Name</label>
+                <input type="text" id="serviceName" name="serviceName" placeholder="my-app">
+            </div>
+            <div class="form-group">
+                <label for="servicePort">Service Port</label>
+                <input type="number" id="servicePort" name="servicePort" value="80" min="1" max="65535">
+            </div>
+            </details>
+            </div>
+
+            <!-- Hidden field for selected template -->
+            <input type="hidden" id="selectedTemplateId" name="templateId" value="">
+            <input type="hidden" id="selectedTemplateNamespace" name="templateNamespace" value="">
+
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeCreateModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Extend TTL Modal -->
+<div id="extendModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Extend TTL</h3>
+            <button class="icon-btn" onclick="closeExtendModal()">✕</button>
+        </div>
+        <form id="extendForm" onsubmit="extendTTL(event)">
+            <input type="hidden" id="extendEnvName" name="envName">
+            <div class="form-group">
+                <label for="extendDuration">Extend by</label>
+                <select id="extendDuration" name="duration">
+                    <option value="30m">30 minutes</option>
+                    <option value="1h" selected>1 hour</option>
+                    <option value="2h">2 hours</option>
+                    <option value="4h">4 hours</option>
+                    <option value="12h">12 hours</option>
+                    <option value="24h">24 hours</option>
+                </select>
+            </div>
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeExtendModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Extend</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Create Template Modal -->
+<div id="createTemplateModal" class="modal">
+    <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+            <h3 class="modal-title">Create Template</h3>
+            <button class="icon-btn" onclick="closeCreateTemplateModal()">✕</button>
+        </div>
+        <form id="createTemplateForm" onsubmit="createTemplate(event)">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label for="tplName">Template Name *</label>
+                    <input type="text" id="tplName" name="name" required pattern="[a-z0-9-]+" placeholder="my-template">
+                </div>
+                <div class="form-group">
+                    <label for="tplDisplayName">Display Name</label>
+                    <input type="text" id="tplDisplayName" name="displayName" placeholder="My Template">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="tplDescription">Description</label>
+                <textarea id="tplDescription" name="description" rows="2" style="width: 100%; padding: 10px 12px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 14px; resize: vertical;" placeholder="Describe what this template deploys..."></textarea>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label for="tplIcon">Icon (Emoji)</label>
+                    <input type="text" id="tplIcon" name="icon" placeholder="🚀" maxlength="4">
+                </div>
+                <div class="form-group">
+                    <label for="tplTTL">Default TTL</label>
+                    <input type="text" id="tplTTL" name="defaultTTL" value="1h" placeholder="1h, 2h, 24h">
+                </div>
+                <div class="form-group">
+                    <label for="tplNamespace">Namespace</label>
+                    <input type="text" id="tplNamespace" name="namespace" value="ephemeral-system" placeholder="ephemeral-system">
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="tplTags">Tags (comma separated)</label>
+                <input type="text" id="tplTags" name="tags" placeholder="web, database, fullstack">
+            </div>
+
+            <h4 style="margin: 20px 0 12px; color: var(--accent-blue);">📦 Components</h4>
+            <div id="componentsContainer">
+                <div class="component-row" data-index="0">
+                    <div style="display: grid; grid-template-columns: 1fr 2fr 1fr 1fr auto; gap: 12px; align-items: end; padding: 12px; background: var(--bg-tertiary); border-radius: 8px; margin-bottom: 8px;">
+                        <div class="form-group" style="margin: 0;">
+                            <label style="font-size: 11px;">Name *</label>
+                            <input type="text" name="comp_name_0" required placeholder="nginx">
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                            <label style="font-size: 11px;">Repository *</label>
+                            <input type="text" name="comp_repo_0" required placeholder="https://charts.bitnami.com/bitnami">
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                            <label style="font-size: 11px;">Chart *</label>
+                            <input type="text" name="comp_chart_0" required placeholder="nginx">
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                            <label style="font-size: 11px;">Version</label>
+                            <input type="text" name="comp_version_0" placeholder="15.0.0">
+                        </div>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <label style="font-size: 11px; display: flex; align-items: center; gap: 4px;">
+                                <input type="checkbox" name="comp_primary_0" checked> Primary
+                            </label>
+                        </div>
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 12px 12px; background: var(--bg-tertiary); border-radius: 0 0 8px 8px; margin-top: -8px; margin-bottom: 12px;">
+                        <div class="form-group" style="margin: 0;">
+                            <label style="font-size: 11px;">Service Name</label>
+                            <input type="text" name="comp_service_0" placeholder="nginx">
+                        </div>
+                        <div class="form-group" style="margin: 0;">
+                            <label style="font-size: 11px;">Service Port</label>
+                            <input type="number" name="comp_port_0" value="80" min="1" max="65535">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <button type="button" class="btn btn-secondary" onclick="addComponent()" style="margin-bottom: 16px;">
+                ➕ Add Component
+            </button>
+
+            <div class="form-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeCreateTemplateModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create Template</button>
+            </div>
+        </form>
+    </div>
+</div>
+{{end}}
+
+{{define "global_scripts"}}
+<script>
+    // Global state
+    let templates = [];
+    
+    // Tab controls
+    function showTab(tabName) {
+        document.querySelectorAll('.tab-content').forEach(tab => {
+            tab.style.display = 'none';
+            tab.classList.remove('active');
+        });
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        
+        document.getElementById(tabName + '-tab').style.display = 'block';
+        document.getElementById(tabName + '-tab').classList.add('active');
+        event.target.classList.add('active');
+        
+        if (tabName === 'templates') {
+            loadTemplates();
+        }
+    }
+    
+    // Load templates from API
+    async function loadTemplates() {
+        try {
+            const response = await fetch('/api/templates');
+            const data = await response.json();
+            templates = data || [];
+            renderTemplatesGrid();
+            populateTemplateDropdown();
+        } catch (err) {
+            console.error('Error loading templates:', err);
+        }
+    }
+    
+    // Render templates grid
+    function renderTemplatesGrid() {
+        const grid = document.getElementById('templatesGrid');
+        
+        if (!templates || templates.length === 0) {
+            grid.innerHTML = `
+                <div class="empty-state">
+                    <h3>No templates available</h3>
+                    <p>Click "Create Template" to add your first template.</p>
+                </div>
+            `;
+            return;
+        }
+        
+        grid.innerHTML = templates.map(t => `
+            <div class="template-card" data-template-id="${t.id}" data-template-ns="${t.namespace}">
+                <div class="template-header">
+                    <span class="template-icon">${t.icon || '📦'}</span>
+                    <h3>${t.displayName || t.id}</h3>
+                    <button class="icon-btn danger" style="margin-left: auto;" title="Delete Template" onclick="deleteTemplate('${t.id}', '${t.namespace}')">🗑️</button>
+                </div>
+                <p class="template-desc">${t.description || 'No description'}</p>
+                <div class="template-meta">
+                    <span>⏱️ TTL: ${t.defaultTTL || '1h'}</span>
+                    <span>📦 ${t.components?.length || 0} component(s)</span>
+                </div>
+                <div class="template-tags">
+                    ${(t.tags || []).map(tag => `<span class="tag">${tag}</span>`).join('')}
+                </div>
+                <div class="template-components">
+                    <strong>Components:</strong>
+                    <ul>
+                        ${(t.components || []).map(c => `
+                            <li>${c.primary ? '⭐' : '📦'} ${c.name} (${c.chart}:${c.version || 'latest'})</li>
+                        `).join('')}
+                    </ul>
+                </div>
+                <div class="template-actions">
+                    <button class="btn btn-primary" onclick="createFromTemplate('${t.id}', '${t.namespace}')">
+                        🚀 Create Environment
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    // Populate template dropdown in create modal
+    function populateTemplateDropdown() {
+        const select = document.getElementById('templateSelect');
+        select.innerHTML = '<option value="">-- Manual Configuration --</option>';
+        
+        templates.forEach(t => {
+            const option = document.createElement('option');
+            option.value = t.id;
+            option.dataset.namespace = t.namespace;
+            option.textContent = `${t.icon || '📦'} ${t.displayName || t.id} (${t.components?.length || 0} components)`;
+            select.appendChild(option);
+        });
+    }
+    
+    // Handle template selection in create form
+    function onTemplateSelect(templateId) {
+        const template = templates.find(t => t.id === templateId);
+        const manualConfig = document.getElementById('manualConfig');
+        const helmDetails = document.getElementById('helmDetails');
+        
+        document.getElementById('selectedTemplateId').value = templateId;
+        
+        if (template) {
+            document.getElementById('selectedTemplateNamespace').value = template.namespace;
+            
+            // Auto-fill TTL
+            if (template.defaultTTL) {
+                document.getElementById('ttl').value = template.defaultTTL;
+            }
+            
+            // If template has components, hide manual helm config
+            if (template.components && template.components.length > 0) {
+                helmDetails.style.display = 'none';
+                
+                // Find primary component for gateway config
+                const primary = template.components.find(c => c.primary) || template.components[0];
+                if (primary) {
+                    document.getElementById('serviceName').value = primary.serviceName || primary.name;
+                    document.getElementById('servicePort').value = primary.servicePort || 80;
+                }
+            }
+        } else {
+            // Manual mode - show all fields
+            document.getElementById('selectedTemplateNamespace').value = '';
+            helmDetails.style.display = 'block';
+        }
+    }
+    
+    // Create from template button in templates grid
+    function createFromTemplate(templateId, namespace) {
+        openCreateModal();
+        document.getElementById('templateSelect').value = templateId;
+        onTemplateSelect(templateId);
+    }
+
+    // Modal controls
+    function openCreateModal() {
+        loadTemplates(); // Ensure templates are loaded
+        document.getElementById('createModal').classList.add('active');
+    }
+    
+    function closeCreateModal() {
+        document.getElementById('createModal').classList.remove('active');
+        // Reset form
+        document.getElementById('createForm').reset();
+        document.getElementById('selectedTemplateId').value = '';
+        document.getElementById('selectedTemplateNamespace').value = '';
+        document.getElementById('helmDetails').style.display = 'block';
+    }
+    
+    function openExtendModal(envName) {
+        document.getElementById('extendEnvName').value = envName;
+        document.getElementById('extendModal').classList.add('active');
+    }
+    
+    function closeExtendModal() {
+        document.getElementById('extendModal').classList.remove('active');
+    }
+    
+    // API calls
+    async function createEnv(event) {
+        event.preventDefault();
+        
+        const form = event.target;
+        const envName = form.envName.value;
+        const templateId = document.getElementById('selectedTemplateId').value;
+        const templateNamespace = document.getElementById('selectedTemplateNamespace').value;
+        
+        let data = {
+            metadata: {
+                name: envName,
+                namespace: 'default'
+            },
+            spec: {
+                ttl: form.ttl.value,
+                gateway: {
+                    name: form.gatewayName.value || 'main-gateway',
+                    namespace: form.gatewayNamespace.value || 'default',
+                    domainPrefix: envName,
+                    serviceName: form.serviceName.value,
+                    targetPort: parseInt(form.servicePort.value)
+                }
+            }
+        };
+        
+        // If template selected, use templateRef
+        if (templateId) {
+            data.spec.templateRef = {
+                name: templateId,
+                namespace: templateNamespace || 'ephemeral-system'
+            };
+        } else {
+            // Manual helm config
+            data.spec.helm = {
+                repository: form.helmRepo.value,
+                chart: form.helmChart.value,
+                version: form.helmVersion.value
+            };
+        }
+        
+        try {
+            const response = await fetch('/api/envs', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data)
+            });
+            
+            if (response.ok) {
+                closeCreateModal();
+                window.location.reload();
+            } else {
+                const error = await response.json();
+                alert('Error: ' + error.error);
+            }
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+    
+    async function deleteEnv(name) {
+        if (!confirm(`Delete environment "${name}"?`)) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/api/envs/${name}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                document.querySelector(`tr[data-name="${name}"]`).remove();
+            } else {
+                const error = await response.json();
+                alert('Error: ' + error.error);
+            }
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+    
+    async function extendTTL(event) {
+        event.preventDefault();
+        
+        const form = event.target;
+        const envName = form.envName.value;
+        const duration = form.duration.value;
+        
+        try {
+            const response = await fetch(`/api/envs/${envName}/extend-ttl`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ duration })
+            });
+            
+            if (response.ok) {
+                closeExtendModal();
+                window.location.reload();
+            } else {
+                const error = await response.json();
+                alert('Error: ' + error.error);
+            }
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+    
+    // Template Modal functions
+    let componentCount = 1;
+    
+    function openCreateTemplateModal() {
+        document.getElementById('createTemplateModal').classList.add('active');
+        componentCount = 1;
+    }
+    
+    function closeCreateTemplateModal() {
+        document.getElementById('createTemplateModal').classList.remove('active');
+        document.getElementById('createTemplateForm').reset();
+        // Reset to single component
+        const container = document.getElementById('componentsContainer');
+        container.innerHTML = container.querySelector('.component-row').outerHTML;
+        componentCount = 1;
+    }
+    
+    function addComponent() {
+        const container = document.getElementById('componentsContainer');
+        const idx = componentCount++;
+        
+        const html = `
+            <div class="component-row" data-index="${idx}">
+                <div style="display: grid; grid-template-columns: 1fr 2fr 1fr 1fr auto; gap: 12px; align-items: end; padding: 12px; background: var(--bg-tertiary); border-radius: 8px; margin-bottom: 8px;">
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 11px;">Name *</label>
+                        <input type="text" name="comp_name_${idx}" required placeholder="redis">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 11px;">Repository *</label>
+                        <input type="text" name="comp_repo_${idx}" required placeholder="https://charts.bitnami.com/bitnami">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 11px;">Chart *</label>
+                        <input type="text" name="comp_chart_${idx}" required placeholder="redis">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 11px;">Version</label>
+                        <input type="text" name="comp_version_${idx}" placeholder="17.0.0">
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <label style="font-size: 11px; display: flex; align-items: center; gap: 4px;">
+                            <input type="checkbox" name="comp_primary_${idx}"> Primary
+                        </label>
+                        <button type="button" class="icon-btn danger" onclick="removeComponent(${idx})" title="Remove">✕</button>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 0 12px 12px; background: var(--bg-tertiary); border-radius: 0 0 8px 8px; margin-top: -8px; margin-bottom: 12px;">
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 11px;">Service Name</label>
+                        <input type="text" name="comp_service_${idx}" placeholder="redis-master">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label style="font-size: 11px;">Service Port</label>
+                        <input type="number" name="comp_port_${idx}" value="6379" min="1" max="65535">
+                    </div>
+                </div>
+            </div>
+        `;
+        container.insertAdjacentHTML('beforeend', html);
+    }
+    
+    function removeComponent(idx) {
+        const row = document.querySelector(`.component-row[data-index="${idx}"]`);
+        if (row) row.remove();
+    }
+    
+    async function createTemplate(event) {
+        event.preventDefault();
+        
+        const form = event.target;
+        const formData = new FormData(form);
+        
+        // Parse tags
+        const tagsStr = formData.get('tags') || '';
+        const tags = tagsStr.split(',').map(t => t.trim()).filter(t => t.length > 0);
+        
+        // Collect components
+        const components = [];
+        document.querySelectorAll('.component-row').forEach(row => {
+            const idx = row.dataset.index;
+            const name = formData.get(`comp_name_${idx}`);
+            const repo = formData.get(`comp_repo_${idx}`);
+            const chart = formData.get(`comp_chart_${idx}`);
+            
+            if (name && repo && chart) {
+                components.push({
+                    name: name,
+                    repository: repo,
+                    chart: chart,
+                    version: formData.get(`comp_version_${idx}`) || '',
+                    serviceName: formData.get(`comp_service_${idx}`) || name,
+                    servicePort: parseInt(formData.get(`comp_port_${idx}`)) || 80,
+                    primary: !!form.querySelector(`input[name="comp_primary_${idx}"]`)?.checked
+                });
+            }
+        });
+        
+        if (components.length === 0) {
+            alert('At least one component is required');
+            return;
+        }
+        
+        // Ensure at least one primary
+        if (!components.some(c => c.primary)) {
+            components[0].primary = true;
+        }
+        
+        const data = {
+            name: formData.get('name'),
+            namespace: formData.get('namespace') || 'ephemeral-system',
+            displayName: formData.get('displayName') || formData.get('name'),
+            description: formData.get('description') || '',
+            icon: formData.get('icon') || '📦',
+            defaultTTL: formData.get('defaultTTL') || '1h',
+            tags: tags,
+            components: components
+        };
+        
+        try {
+            const response = await fetch('/api/templates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            
+            if (response.ok) {
+                closeCreateTemplateModal();
+                loadTemplates();
+                alert('Template created successfully!');
+            } else {
+                const error = await response.json();
+                alert('Error: ' + (error.error || 'Failed to create template'));
+            }
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+    
+    async function deleteTemplate(id, namespace) {
+        if (!confirm(`Delete template "${id}"? This cannot be undone.`)) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/api/templates/${id}?namespace=${namespace}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok || response.status === 204) {
+                // Remove from UI
+                const card = document.querySelector(`.template-card[data-template-id="${id}"]`);
+                if (card) card.remove();
+                
+                // Refresh templates list
+                loadTemplates();
+            } else {
+                const error = await response.json();
+                alert('Error: ' + (error.error || 'Failed to delete template'));
+            }
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+    
+    // Auto-refresh every 30 seconds
+    setInterval(() => {
+        if (document.getElementById('environments-tab').classList.contains('active')) {
+            window.location.reload();
+        }
+    }, 30000);
+    
+    // Load templates on page load
+    document.addEventListener('DOMContentLoaded', loadTemplates);
+</script>
+{{end}}
+
+{{define "global_dashboard.html"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}} - Ephemeral Operator</title>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --border-color: #30363d;
+            --text-primary: #c9d1d9;
+            --text-secondary: #8b949e;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-yellow: #d29922;
+            --accent-red: #f85149;
+            --accent-purple: #a371f7;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+        header { background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+        header h1 { font-size: 20px; font-weight: 600; display: flex; align-items: center; gap: 12px; }
+        header h1 .logo { font-size: 24px; }
+        nav { display: flex; gap: 16px; }
+        nav a { color: var(--text-secondary); text-decoration: none; font-size: 14px; padding: 8px 12px; border-radius: 6px; transition: all 0.2s; }
+        nav a:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+        h2 { font-size: 24px; font-weight: 600; margin-bottom: 16px; }
+        .card { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--border-color); }
+        th { font-weight: 600; color: var(--text-secondary); font-size: 12px; text-transform: uppercase; }
+        tr:hover { background: var(--bg-tertiary); }
+        .status-badge { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+        .status-active { background: rgba(63, 185, 80, 0.15); color: var(--accent-green); }
+        .status-pending { background: rgba(210, 153, 34, 0.15); color: var(--accent-yellow); }
+        .status-failed { background: rgba(248, 81, 73, 0.15); color: var(--accent-red); }
+        .status-expired { background: rgba(139, 148, 158, 0.15); color: var(--text-secondary); }
+        .status-unknown { background: rgba(163, 113, 247, 0.15); color: var(--accent-purple); }
+        .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.2s; text-decoration: none; }
+        .btn-primary { background: var(--accent-green); border-color: var(--accent-green); color: #fff; }
+        .btn-primary:hover { background: #2ea043; }
+        .btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); }
+        .btn-secondary:hover { background: var(--border-color); }
+        .link { color: var(--accent-blue); text-decoration: none; }
+        .link:hover { text-decoration: underline; }
+        .actions { display: flex; gap: 8px; }
+        .icon-btn { padding: 6px 10px; background: transparent; border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-secondary); cursor: pointer; transition: all 0.2s; }
+        .icon-btn:hover { color: var(--text-primary); background: var(--bg-tertiary); }
+        .icon-btn.danger:hover { color: var(--accent-red); border-color: var(--accent-red); }
+        .empty-state { text-align: center; padding: 48px 24px; color: var(--text-secondary); }
+        .empty-state h3 { font-size: 18px; margin-bottom: 8px; color: var(--text-primary); }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 1000; align-items: center; justify-content: center; }
+        .modal.active { display: flex; }
+        .modal-content { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; padding: 24px; max-width: 500px; width: 100%; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-title { font-size: 18px; font-weight: 600; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 14px; font-weight: 500; margin-bottom: 8px; }
+        .form-group input, .form-group select { width: 100%; padding: 10px 12px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 14px; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--accent-blue); }
+        .form-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px; }
+        footer { text-align: center; padding: 24px; color: var(--text-secondary); font-size: 12px; }
+        /* Tabs */
+        .tabs { display: flex; gap: 8px; }
+        .tab-btn { padding: 12px 20px; background: transparent; border: none; border-bottom: 2px solid transparent; color: var(--text-secondary); cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.2s; }
+        .tab-btn:hover { color: var(--text-primary); }
+        .tab-btn.active { color: var(--accent-blue); border-bottom-color: var(--accent-blue); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        /* Templates Grid */
+        .templates-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px; }
+        .template-card { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; transition: all 0.2s; }
+        .template-card:hover { border-color: var(--accent-blue); transform: translateY(-2px); }
+        .template-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+        .template-icon { font-size: 32px; }
+        .template-header h3 { font-size: 18px; font-weight: 600; margin: 0; }
+        .template-desc { color: var(--text-secondary); font-size: 14px; margin-bottom: 12px; line-height: 1.5; }
+        .template-meta { display: flex; gap: 16px; color: var(--text-secondary); font-size: 12px; margin-bottom: 12px; }
+        .template-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+        .tag { background: var(--bg-tertiary); color: var(--text-secondary); padding: 4px 10px; border-radius: 12px; font-size: 11px; }
+        .template-components { background: var(--bg-primary); padding: 12px; border-radius: 8px; margin-bottom: 16px; font-size: 13px; }
+        .template-components ul { margin: 8px 0 0 16px; padding: 0; }
+        .template-components li { margin: 4px 0; color: var(--text-secondary); }
+        .template-actions { display: flex; justify-content: flex-end; }
+        details summary { list-style: none; }
+        details summary::-webkit-details-marker { display: none; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1><span class="logo">⚡</span>Ephemeral Operator</h1>
+        <nav><a href="/">🏠 Dashboard</a><a href="javascript:void(0)" onclick="showTab('templates')">📦 Templates</a><a href="/api/envs">📋 API</a></nav>
+    </header>
+    <div class="container">
+        {{template "global_content" .}}
+    </div>
+    <footer>Ephemeral Operator &copy; 2026 | Kubernetes Native Preview Environments</footer>
+    {{template "global_scripts" .}}
+</body>
+</html>
+{{end}}

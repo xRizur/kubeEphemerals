@@ -1,0 +1,243 @@
+# =============================================================================
+# Ephemeral Environment - Comprehensive Demo
+# =============================================================================
+# This sample demonstrates ALL features of the EphemeralEnv CRD:
+# - TTL (Time-to-Live) with automatic expiration
+# - Network Isolation via NetworkPolicy
+# - Helm chart deployment with comprehensive values
+# - Gateway API HTTPRoute for external access
+# - Admin dashboard routing
+# =============================================================================
+apiVersion: ephemeral.ephemeralenv.io/v1alpha1
+kind: EphemeralEnv
+metadata:
+  labels:
+    app.kubernetes.io/name: ephemeral-operator
+    app.kubernetes.io/managed-by: kustomize
+    # Custom labels for your environment
+    team: platform
+    feature: user-auth
+    pr-number: "123"
+  name: pr-123-demo
+spec:
+  # ==========================================================================
+  # TTL (Time-to-Live)
+  # ==========================================================================
+  # Environment will auto-expire after this duration.
+  # Supports Go duration format: "30m", "2h", "24h", "72h", etc.
+  # After expiration, all resources (namespace, pods, routes) are cleaned up.
+  ttl: "2h"
+  
+  # ==========================================================================
+  # Network Isolation
+  # ==========================================================================
+  # When true, creates a deny-all NetworkPolicy in the namespace.
+  # This prevents pods from communicating with other namespaces.
+  # Set to false for environments that need to access other services.
+  isolation: true
+  
+  # ==========================================================================
+  # Helm Chart Configuration
+  # ==========================================================================
+  # Deploys a Helm chart into the ephemeral namespace.
+  # Supports ANY Helm chart with full values customization.
+  helm:
+    # Chart repository URL (must be https://)
+    repository: "https://stefanprodan.github.io/podinfo"
+    
+    # Chart name within the repository
+    chart: "podinfo"
+    
+    # Specific version to deploy (semver format)
+    version: "6.9.4"
+    
+    # ========================================================================
+    # Helm Values - Full YAML support!
+    # ========================================================================
+    # Values can include:
+    # - Integers (replicaCount: 2)
+    # - Strings (image.tag: "latest")
+    # - Booleans (serviceAccount.create: false)
+    # - Arrays (extraEnvs: [{name: FOO, value: bar}])
+    # - Nested objects (resources.limits.cpu: "500m")
+    values:
+      # ---- Pod Configuration ----
+      replicaCount: 2
+      
+      # ---- Image Configuration ----
+      image:
+        repository: ghcr.io/stefanprodan/podinfo
+        tag: "6.9.4"
+        pullPolicy: IfNotPresent
+      
+      # ---- Service Configuration ----
+      service:
+        enabled: true
+        type: ClusterIP
+        port: 9898
+        annotations:
+          prometheus.io/scrape: "true"
+          prometheus.io/port: "9898"
+      
+      # ---- Resource Limits ----
+      resources:
+        requests:
+          cpu: "100m"
+          memory: "64Mi"
+        limits:
+          cpu: "500m"
+          memory: "256Mi"
+      
+      # ---- Probes ----
+      probes:
+        readiness:
+          initialDelaySeconds: 1
+          timeoutSeconds: 5
+        liveness:
+          initialDelaySeconds: 1
+          timeoutSeconds: 5
+      
+      # ---- Environment Variables ----
+      # Pass configuration to your app
+      extraEnvs:
+        - name: PODINFO_UI_COLOR
+          value: "#34577c"
+        - name: PODINFO_UI_MESSAGE
+          value: "PR #123 - Preview Environment"
+        - name: FEATURE_FLAG_NEW_UI
+          value: "true"
+        - name: LOG_LEVEL
+          value: "debug"
+      
+      # ---- Pod Labels ----
+      podLabels:
+        environment: preview
+        pr: "123"
+        managed-by: ephemeral-operator
+      
+      # ---- Pod Annotations ----
+      podAnnotations:
+        sidecar.istio.io/inject: "false"
+        prometheus.io/scrape: "true"
+      
+      # ---- Ingress (disabled - we use Gateway API instead) ----
+      ingress:
+        enabled: false
+      
+      # ---- HPA (Horizontal Pod Autoscaler) ----
+      hpa:
+        enabled: false
+        minReplicas: 1
+        maxReplicas: 3
+        targetCPUUtilizationPercentage: 80
+      
+      # ---- Service Account ----
+      # For podinfo chart, set create: true to create the SA
+      serviceAccount:
+        enabled: false
+  
+  # ==========================================================================
+  # Gateway API Configuration
+  # ==========================================================================
+  # Creates an HTTPRoute for external access to the environment.
+  # Your cluster needs a Gateway (like Envoy Gateway, Istio, etc.) running.
+  gateway:
+    # Name of the parent Gateway resource
+    name: "main-gateway"
+    
+    # Namespace where the Gateway is deployed
+    namespace: "default"
+    
+    # Domain prefix - becomes: pr-123.preview.example.com
+    # For admin dashboard: admin.pr-123.preview.example.com
+    domainPrefix: "pr-123"
+    
+    # Service to route traffic to (created by Helm chart)
+    serviceName: "env-pr-123-demo-podinfo"
+    
+    # Port of the service
+    targetPort: 9898
+
+---
+# =============================================================================
+# Ephemeral Environment - Multi-Chart Deployment Example
+# =============================================================================
+# This example demonstrates deploying multiple Helm charts as components.
+# Perfect for full-stack applications with frontend, backend, and database.
+# =============================================================================
+apiVersion: ephemeral.ephemeralenv.io/v1alpha1
+kind: EphemeralEnv
+metadata:
+  name: fullstack-demo
+  labels:
+    tier: fullstack
+spec:
+  ttl: "4h"
+  isolation: true
+  
+  # Multi-chart deployment using components
+  components:
+    # Frontend component (Primary - used for routing)
+    - name: frontend
+      repository: "https://charts.bitnami.com/bitnami"
+      chart: "nginx"
+      version: "15.0.0"
+      serviceName: "frontend-nginx"
+      servicePort: 80
+      primary: true
+      values:
+        service:
+          type: ClusterIP
+        replicaCount: 1
+    
+    # Database component
+    - name: database
+      repository: "https://charts.bitnami.com/bitnami"
+      chart: "postgresql"
+      version: "12.0.0"
+      serviceName: "postgresql"
+      servicePort: 5432
+      primary: false
+      values:
+        auth:
+          username: appuser
+          database: appdb
+        primary:
+          persistence:
+            enabled: false
+  
+  gateway:
+    name: "main-gateway"
+    namespace: "default"
+    domainPrefix: "fullstack-demo"
+    serviceName: "frontend-nginx"
+    targetPort: 80
+
+---
+# =============================================================================
+# Ephemeral Environment - Template Reference Example
+# =============================================================================
+# This example uses a pre-defined EnvironmentTemplate for quick deployment.
+# Simply reference the template and customize as needed.
+# =============================================================================
+apiVersion: ephemeral.ephemeralenv.io/v1alpha1
+kind: EphemeralEnv
+metadata:
+  name: from-template-demo
+  labels:
+    created-from: template
+spec:
+  # Reference an existing EnvironmentTemplate
+  templateRef:
+    name: fullstack-webapp
+    namespace: ephemeral-system
+  
+  # Override TTL from template
+  ttl: "6h"
+  
+  gateway:
+    name: "main-gateway"
+    namespace: "default"
+    domainPrefix: "template-demo"
+    serviceName: "frontend-nginx"
+    targetPort: 80
