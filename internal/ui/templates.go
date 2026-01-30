@@ -81,7 +81,7 @@ type ComponentAPIResponse struct {
 	ServicePort int32 `json:"servicePort"`
 
 	// Values contains default Helm values for this component (as raw JSON)
-	Values interface{} `json:"values,omitempty"`
+	Values any `json:"values,omitempty"`
 
 	// Primary indicates if this is the main component (used for routing)
 	Primary bool `json:"primary,omitempty"`

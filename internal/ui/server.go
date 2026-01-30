@@ -646,7 +646,7 @@ func (s *Server) extendTTL(w http.ResponseWriter, r *http.Request, envName strin
 // Helper Functions
 // =============================================================================
 
-func (s *Server) renderTemplate(w http.ResponseWriter, name string, data interface{}) {
+func (s *Server) renderTemplate(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// First lookup the named template, then execute it
 	tmpl := s.templates.Lookup(name)
@@ -661,7 +661,7 @@ func (s *Server) renderTemplate(w http.ResponseWriter, name string, data interfa
 	}
 }
 
-func (s *Server) jsonResponse(w http.ResponseWriter, data interface{}) {
+func (s *Server) jsonResponse(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(data)
 }
