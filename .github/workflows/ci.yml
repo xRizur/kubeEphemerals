@@ -70,7 +70,7 @@ jobs:
 
       # JUnit for the two non-Ginkgo tests in internal/ui (not run by ginkgo)
       - name: Run non-Ginkgo unit tests (JUnit)
-        run: gotestsum --junitfile junit-ui-extra.xml -- go test -run 'TestGenerateKubeconfigYAML|TestGetClusterInfoServerAndCA' ./internal/ui/
+        run: gotestsum --junitfile junit-ui-extra.xml -- -run 'TestGenerateKubeconfigYAML|TestGetClusterInfoServerAndCA' ./internal/ui/
 
       - name: Publish Unit Test Results (PR comment)
         if: always() && github.event_name == 'pull_request'
