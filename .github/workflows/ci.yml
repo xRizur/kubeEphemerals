@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
   checks: write
+  pull-requests: write
 
 jobs:
   lint:
@@ -34,8 +35,8 @@ jobs:
           args: --timeout=5m
 
       - name: Upload SARIF (annotations in PR)
-        if: always() && github.event_name == 'pull_request'
-        uses: github/codeql-action/upload-sarif@v3
+        if: always() && github.event_name == 'pull_request' && hashFiles('golangci-lint.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: golangci-lint.sarif
           category: golangci-lint
