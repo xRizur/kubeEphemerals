@@ -54,11 +54,12 @@ jobs:
       - name: Install gotestsum and ginkgo CLI
         run: |
           go install gotest.tools/gotestsum@latest
-          go install github.com/onsi/ginkgo/v2/ginkgo@latest
+          go install github.com/onsi/ginkgo/v2/ginkgo@v2.27.2
 
       # Run all tests once for coverage
       - name: Run tests (coverage)
         run: |
+          cd "$GITHUB_WORKSPACE"
           PACKAGES=$(go list ./... | grep -v /e2e)
           go test -coverprofile=coverage.out $PACKAGES
         env:
@@ -66,17 +67,21 @@ jobs:
 
       # JUnit: one entry per Ginkgo It (not per package) so PR comment shows real spec count
       - name: Run tests (JUnit from Ginkgo)
-        run: ginkgo -r --junit-report=junit-ginkgo.xml --skip-package=e2e --no-color .
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          ginkgo -r --junit-report=junit-ginkgo.xml --skip-package=e2e --no-color .
 
       # JUnit for the two non-Ginkgo tests in internal/ui (not run by ginkgo)
       - name: Run non-Ginkgo unit tests (JUnit)
-        run: gotestsum --junitfile junit-ui-extra.xml -- -run 'TestGenerateKubeconfigYAML|TestGetClusterInfoServerAndCA' ./internal/ui/
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          gotestsum --junitfile junit-ui-extra.xml -- -run 'TestGenerateKubeconfigYAML|TestGetClusterInfoServerAndCA' ./internal/ui/
 
       - name: Publish Unit Test Results (PR comment)
         if: always() && github.event_name == 'pull_request'
         uses: EnricoMi/publish-unit-test-result-action@v2
         with:
-          files: junit-ginkgo.xml junit-ui-extra.xml
+          files: "junit-*.xml"
           check_name: Unit Test Results
           comment_title: Unit Test Results
           comment_mode: always
@@ -108,33 +113,10 @@ jobs:
         with:
           version: "v3.17.0"
 
-      - name: Install gotestsum
-        run: go install gotest.tools/gotestsum@latest
-
-      - name: Setup e2e (Kind cluster, manifests)
+      - name: "Run e2e tests (same as old pipeline: make test-e2e)"
         run: |
-          make setup-test-e2e
-          make manifests generate fmt vet
-
-      - name: Run e2e tests (Manager + Helm chart)
-        run: |
-          cd "${{ github.workspace }}"
-          gotestsum --junitfile junit-e2e.xml -- -tags=e2e -v -ginkgo.v ./test/e2e
+          go mod tidy
+          make test-e2e
         env:
           CERT_MANAGER_INSTALL_SKIP: "true"
           KIND_CLUSTER: "ephemeral-operator-test-e2e"
-
-      - name: Publish E2E Test Results (PR comment)
-        if: always() && github.event_name == 'pull_request'
-        uses: EnricoMi/publish-unit-test-result-action@v2
-        with:
-          files: junit-e2e.xml
-          check_name: E2E Test Results
-          comment_title: E2E Test Results
-          comment_mode: always
-          fail_on: test failures
-          report_individual_runs: false
-
-      - name: Cleanup Kind cluster
-        if: always()
-        run: make cleanup-test-e2e
