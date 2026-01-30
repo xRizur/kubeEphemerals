@@ -29,18 +29,7 @@ jobs:
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.7.2
-          # Annotations appear on the PR File diff and in the Actions summary
-          output.format: sarif
-          output.path: golangci-lint.sarif
           args: --timeout=5m
-
-      - name: Upload SARIF (annotations in PR)
-        if: always() && github.event_name == 'pull_request' && hashFiles('golangci-lint.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: golangci-lint.sarif
-          category: golangci-lint
-        continue-on-error: true
 
   unit-tests:
     name: "Unit Tests & Coverage"
@@ -65,7 +54,7 @@ jobs:
         run: go install gotest.tools/gotestsum@latest
 
       - name: Run tests
-        run: gotestsum --junitfile junit.xml -- ./... -coverprofile=coverage.out
+        run: gotestsum --junitfile junit.xml -- -coverprofile=coverage.out $$(go list ./... | grep -v /e2e)
         env:
           GOFLAGS: -mod=mod
 
@@ -114,7 +103,7 @@ jobs:
           make manifests generate fmt vet
 
       - name: Run e2e tests (Manager + Helm chart)
-        run: gotestsum --junitfile junit-e2e.xml -- go test -tags=e2e ./test/e2e/ -v -ginkgo.v
+        run: gotestsum --junitfile junit-e2e.xml -- -tags=e2e -v -ginkgo.v ./test/e2e/
         env:
           CERT_MANAGER_INSTALL_SKIP: "true"
           KIND_CLUSTER: "ephemeral-operator-test-e2e"
