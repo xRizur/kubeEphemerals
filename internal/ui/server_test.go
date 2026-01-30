@@ -18,6 +18,7 @@ package ui
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -31,6 +32,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -381,6 +384,153 @@ var _ = Describe("UI Server", func() {
 				server.router.ServeHTTP(rec, req)
 
 				Expect(rec.Code).To(Equal(http.StatusBadRequest))
+			})
+		})
+
+		Context("GET /api/envs/{name}/kubeconfig", func() {
+			It("should return 404 for non-existent environment", func() {
+				req := httptest.NewRequest("GET", "/api/envs/nonexistent-kubeconfig/kubeconfig", nil)
+				rec := httptest.NewRecorder()
+
+				server.router.ServeHTTP(rec, req)
+
+				Expect(rec.Code).To(Equal(http.StatusNotFound))
+			})
+
+			It("should return 503 when kubeClient is not configured", func() {
+				// Server is created with nil kubeClient in BeforeEach
+				env := &ephemeralv1alpha1.EphemeralEnv{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "kubeconfig-test",
+						Namespace: "default",
+					},
+					Spec: ephemeralv1alpha1.EphemeralEnvSpec{
+						TTL: "1h",
+					},
+					Status: ephemeralv1alpha1.EphemeralEnvStatus{
+						Phase:           ephemeralv1alpha1.PhaseActive,
+						ActiveNamespace: "env-kubeconfig-test",
+					},
+				}
+				Expect(server.client.Create(context.Background(), env)).To(Succeed())
+
+				req := httptest.NewRequest("GET", "/api/envs/kubeconfig-test/kubeconfig", nil)
+				rec := httptest.NewRecorder()
+
+				server.router.ServeHTTP(rec, req)
+
+				Expect(rec.Code).To(Equal(http.StatusServiceUnavailable))
+			})
+
+			It("should use GetNamespaceName when ActiveNamespace is empty", func() {
+				// Env without status.ActiveNamespace - handler should fall back to GetNamespaceName()
+				env := &ephemeralv1alpha1.EphemeralEnv{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "no-ns-env",
+						Namespace: "default",
+					},
+					Spec: ephemeralv1alpha1.EphemeralEnvSpec{
+						TTL: "1h",
+					},
+					Status: ephemeralv1alpha1.EphemeralEnvStatus{
+						Phase: ephemeralv1alpha1.PhaseActive,
+						// ActiveNamespace empty
+					},
+				}
+				Expect(server.client.Create(context.Background(), env)).To(Succeed())
+
+				req := httptest.NewRequest("GET", "/api/envs/no-ns-env/kubeconfig", nil)
+				rec := httptest.NewRecorder()
+
+				server.router.ServeHTTP(rec, req)
+
+				// kubeClient is nil so we get 503; we're just verifying the handler doesn't 404
+				Expect(rec.Code).To(Equal(http.StatusServiceUnavailable))
+			})
+		})
+
+		Describe("resolveKubeconfigServerURL", func() {
+			ctx := context.Background()
+
+			It("uses restConfig.Host when cluster-info is missing and restConfig is set", func() {
+				//nolint:staticcheck // SA1019 fake.NewSimpleClientset is the standard for unit tests without applyconfig
+				kubeClient := k8sfake.NewSimpleClientset()
+				cfg := DefaultConfig()
+				cfg.RestConfig = &rest.Config{
+					Host: "https://rest.example.com:6443",
+					TLSClientConfig: rest.TLSClientConfig{
+						CAData: []byte("rest-ca-data"),
+					},
+				}
+				serverURL, caData, err := resolveKubeconfigServerURL(ctx, kubeClient, cfg)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(serverURL).To(Equal("https://rest.example.com:6443"))
+				Expect(caData).To(Equal([]byte("rest-ca-data")))
+			})
+
+			It("overrides with KubeconfigServerURL when set", func() {
+				//nolint:staticcheck // SA1019 fake.NewSimpleClientset is the standard for unit tests without applyconfig
+				kubeClient := k8sfake.NewSimpleClientset()
+				cfg := DefaultConfig()
+				cfg.RestConfig = &rest.Config{Host: "https://internal:6443"}
+				cfg.KubeconfigServerURL = "https://127.0.0.1:32771"
+				serverURL, _, err := resolveKubeconfigServerURL(ctx, kubeClient, cfg)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(serverURL).To(Equal("https://127.0.0.1:32771"))
+			})
+
+			It("overrides with ConfigMap when operator namespace and ConfigMap are set (ConfigMap wins over env)", func() {
+				cm := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "ephemeral-operator-ui-config",
+						Namespace: "ephemeral-operator-system",
+					},
+					Data: map[string]string{
+						"kubeconfig-server-url": "https://cluster.example.com:6443",
+					},
+				}
+				//nolint:staticcheck // SA1019 fake.NewSimpleClientset is the standard for unit tests without applyconfig
+				kubeClient := k8sfake.NewSimpleClientset(cm)
+				cfg := DefaultConfig()
+				cfg.RestConfig = &rest.Config{Host: "https://internal:6443"}
+				cfg.KubeconfigServerURL = "https://env-override:6443"
+				cfg.OperatorNamespace = "ephemeral-operator-system"
+				serverURL, _, err := resolveKubeconfigServerURL(ctx, kubeClient, cfg)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(serverURL).To(Equal("https://cluster.example.com:6443"))
+			})
+
+			It("uses cluster-info when present", func() {
+				clusterInfoYAML := `clusters:
+- name: c1
+  cluster:
+    server: https://cluster-info.example.com
+    certificate-authority-data: ` + base64.StdEncoding.EncodeToString([]byte("cluster-info-ca")) + "\n"
+				clusterInfoCM := &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      ClusterInfoConfigMapName,
+						Namespace: ClusterInfoNamespace,
+					},
+					Data: map[string]string{ClusterInfoKubeconfigKey: clusterInfoYAML},
+				}
+				//nolint:staticcheck // SA1019 fake.NewSimpleClientset is the standard for unit tests without applyconfig
+				kubeClient := k8sfake.NewSimpleClientset(clusterInfoCM)
+				cfg := DefaultConfig()
+				cfg.RestConfig = &rest.Config{Host: "https://rest:6443"}
+				serverURL, caData, err := resolveKubeconfigServerURL(ctx, kubeClient, cfg)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(serverURL).To(Equal("https://cluster-info.example.com"))
+				Expect(string(caData)).To(Equal("cluster-info-ca"))
+			})
+
+			It("returns error when restConfig is nil and cluster-info is missing", func() {
+				//nolint:staticcheck // SA1019 fake.NewSimpleClientset is the standard for unit tests without applyconfig
+				kubeClient := k8sfake.NewSimpleClientset()
+				cfg := DefaultConfig()
+				cfg.RestConfig = nil
+				_, _, err := resolveKubeconfigServerURL(ctx, kubeClient, cfg)
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("no rest config"))
 			})
 		})
 

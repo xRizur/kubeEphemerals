@@ -24,15 +24,18 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
+	authv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -57,6 +60,24 @@ type Config struct {
 	BaseDomain string
 	// ListenAddr is the address to listen on (e.g., ":8080")
 	ListenAddr string
+	// RestConfig is the Kubernetes rest config (Host and CAData used for kubeconfig generation).
+	// If nil, InClusterConfig() is used when generating kubeconfig.
+	RestConfig *rest.Config
+	// KubeconfigServerURL overrides the API server URL embedded in generated kubeconfigs.
+	// Use when the default (RestConfig.Host or cluster-info) is not reachable from where
+	// users run kubectl (e.g. control-plane.minikube.internal from WSL). Set to the URL
+	// that works from the client (e.g. https://127.0.0.1:8443 for minikube). Can be set
+	// via env KUBECONFIG_SERVER_URL.
+	KubeconfigServerURL string
+	// OperatorNamespace is the namespace where the operator runs. When set, the UI will
+	// try to read the kubeconfig server URL from ConfigMap OperatorKubeconfigConfigMapName
+	// (key OperatorKubeconfigConfigMapKey). That gives per-cluster config (like Rancher FQDN
+	// or EKS endpoint) without env vars. Set from --operator-namespace or POD_NAMESPACE/OPERATOR_NAMESPACE.
+	OperatorNamespace string
+	// OperatorKubeconfigConfigMapName is the ConfigMap name for kubeconfig server URL override (default below).
+	OperatorKubeconfigConfigMapName string
+	// OperatorKubeconfigConfigMapKey is the ConfigMap data key for the server URL (default below).
+	OperatorKubeconfigConfigMapKey string
 }
 
 // DefaultConfig returns a default configuration
@@ -179,6 +200,7 @@ func (s *Server) setupRouter() {
 	platformRouter.HandleFunc("/api/envs", s.handleCreateEnv).Methods("POST")
 	platformRouter.HandleFunc("/api/envs/{name}", s.handleDeleteEnv).Methods("DELETE")
 	platformRouter.HandleFunc("/api/envs/{name}", s.handleGetEnv).Methods("GET")
+	platformRouter.HandleFunc("/api/envs/{name}/kubeconfig", s.handleKubeconfigByName).Methods("GET")
 
 	// Admin dashboard routes (per-environment view)
 	// Matches: admin.pr-123.preview.example.com or admin-pr-123.preview.example.com
@@ -204,6 +226,7 @@ func (s *Server) setupRouter() {
 	s.router.HandleFunc("/api/envs/{name}/pods/{pod}/logs", s.handlePodLogsByName).Methods("GET")
 	s.router.HandleFunc("/api/envs/{name}/pods/{pod}/logs/stream", s.handlePodLogsStreamByName)
 	s.router.HandleFunc("/api/envs/{name}/extend-ttl", s.handleExtendTTLByName).Methods("POST")
+	s.router.HandleFunc("/api/envs/{name}/kubeconfig", s.handleKubeconfigByName).Methods("GET")
 
 	// Templates API - Service Catalog
 	s.router.HandleFunc("/api/templates", s.handleListTemplates).Methods("GET")
@@ -348,6 +371,121 @@ func (s *Server) handleGetEnv(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.jsonResponse(w, env)
+}
+
+// resolveKubeconfigServerURL returns the API server URL and CA for generated kubeconfigs.
+// Priority: cluster-info ConfigMap or rest.Config for base URL/CA; then env KubeconfigServerURL override;
+// then ConfigMap in operator namespace (per-cluster config). See ARCHITECTURE.md Appendix D.
+func resolveKubeconfigServerURL(ctx context.Context, kubeClient kubernetes.Interface, cfg Config) (serverURL string, caData []byte, err error) {
+	serverURL, caData, errCI := GetClusterInfoServerAndCA(ctx, kubeClient)
+	restConfig := cfg.RestConfig
+	if restConfig == nil {
+		restConfig, err = rest.InClusterConfig()
+		if err != nil {
+			restConfig = nil
+		}
+	}
+	if errCI != nil {
+		log.Info("Using rest config for kubeconfig (cluster-info not available)", "reason", errCI.Error())
+		if restConfig == nil {
+			return "", nil, fmt.Errorf("no rest config and cluster-info unavailable: %w", errCI)
+		}
+		serverURL = restConfig.Host
+		caData = restConfig.CAData
+	}
+	if len(caData) == 0 && restConfig != nil {
+		caData = restConfig.CAData
+		if len(caData) == 0 && restConfig.CAFile != "" {
+			caData, err = os.ReadFile(restConfig.CAFile)
+			if err != nil {
+				log.Error(err, "Failed to read CA file for kubeconfig", "path", restConfig.CAFile)
+			} else {
+				log.Info("Using CA from file for kubeconfig", "path", restConfig.CAFile)
+			}
+		}
+	}
+	if cfg.KubeconfigServerURL != "" {
+		serverURL = cfg.KubeconfigServerURL
+		log.Info("Using KubeconfigServerURL override for kubeconfig", "server", serverURL)
+	}
+	if cfg.OperatorNamespace != "" && kubeClient != nil {
+		cmName := cfg.OperatorKubeconfigConfigMapName
+		if cmName == "" {
+			cmName = "ephemeral-operator-ui-config"
+		}
+		key := cfg.OperatorKubeconfigConfigMapKey
+		if key == "" {
+			key = "kubeconfig-server-url"
+		}
+		cm, errCM := kubeClient.CoreV1().ConfigMaps(cfg.OperatorNamespace).Get(ctx, cmName, metav1.GetOptions{})
+		if errCM == nil {
+			if u := strings.TrimSpace(cm.Data[key]); u != "" {
+				serverURL = u
+				log.Info("Using kubeconfig server URL from ConfigMap", "server", serverURL, "configmap", cmName, "namespace", cfg.OperatorNamespace)
+			}
+		}
+	}
+	return serverURL, caData, nil
+}
+
+// handleKubeconfigByName serves a restricted kubeconfig for the environment (GET /api/envs/{name}/kubeconfig).
+func (s *Server) handleKubeconfigByName(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	name := vars["name"]
+
+	env := &ephemeralv1alpha1.EphemeralEnv{}
+	if err := s.client.Get(r.Context(), client.ObjectKey{Name: name, Namespace: "default"}, env); err != nil {
+		s.jsonError(w, "Environment not found", http.StatusNotFound)
+		return
+	}
+
+	namespace := env.Status.ActiveNamespace
+	if namespace == "" {
+		namespace = env.GetNamespaceName()
+	}
+
+	if s.kubeClient == nil {
+		log.Error(nil, "Kubernetes client not configured; cannot create token")
+		s.jsonError(w, "Kubeconfig not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Token expiration: match env TTL or default 12h
+	ttl := min(env.Spec.GetTTL(), DefaultKubeconfigTokenExpiration)
+	expSec := int64(ttl.Seconds())
+
+	tokenReq := &authv1.TokenRequest{
+		Spec: authv1.TokenRequestSpec{
+			ExpirationSeconds: &expSec,
+			Audiences:         []string{"https://kubernetes.default.svc"},
+		},
+	}
+	tokenResp, err := s.kubeClient.CoreV1().ServiceAccounts(namespace).CreateToken(r.Context(), DeveloperAccessSAName, tokenReq, metav1.CreateOptions{})
+	if err != nil {
+		log.Error(err, "Failed to create token for kubeconfig", "namespace", namespace)
+		s.jsonError(w, fmt.Sprintf("Failed to create token: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	serverURL, caData, err := resolveKubeconfigServerURL(r.Context(), s.kubeClient, s.config)
+	if err != nil {
+		log.Error(err, "Failed to resolve kubeconfig server URL")
+		s.jsonError(w, "Cluster config not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	yamlBytes, err := GenerateKubeconfigYAML(serverURL, caData, tokenResp.Status.Token, namespace, name)
+	if err != nil {
+		log.Error(err, "Failed to generate kubeconfig")
+		s.jsonError(w, "Failed to generate kubeconfig", http.StatusInternalServerError)
+		return
+	}
+
+	filename := fmt.Sprintf("kubeconfig-%s.yaml", name)
+	w.Header().Set("Content-Type", "application/x-yaml")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(yamlBytes)
 }
 
 // =============================================================================

@@ -14,6 +14,7 @@
 5. [Development Roadmap (TDD Focused)](#5-development-roadmap-tdd-focused)
 6. [Development Environment](#6-development-environment)
 7. [Current Project Status](#7-current-project-status)
+8. [Appendix D: Kubeconfig API Server URL](#appendix-d-kubeconfig-api-server-url)
 
 ---
 
@@ -2289,6 +2290,42 @@ ephemeral-operator/
 8. **Web UI Dashboard** - Full CRUD for environments and templates
 9. **Multi-chart Support** - Deploy multiple Helm charts per environment
 10. **Template References** - Create environments from predefined templates
+11. **Kubeconfig self-service** - Download kubeconfig per environment (token + RBAC)
+
+---
+
+## Appendix D: Kubeconfig API Server URL
+
+When the operator generates a kubeconfig for an environment, it must embed an **API server URL** that is reachable from where the user runs `kubectl`. That URL is not always the same as the one the operator uses internally (e.g. in-cluster `https://kubernetes.default.svc` or minikube’s internal IP). This section summarizes how other platforms solve this and how we align.
+
+### How others do it
+
+| Platform | Approach | Source of “external” URL |
+|----------|----------|---------------------------|
+| **Rancher** | Kubeconfig includes cluster server URL. For ACE-enabled clusters: if **FQDN is set** on the cluster, that FQDN is used as the single entry; otherwise entries for control plane nodes. | Cluster-level config (FQDN / control plane addresses). [Kubeconfigs API](https://ranchermanager.docs.rancher.com/api/workflows/kubeconfigs), [ACE](https://ranchermanager.docs.rancher.com/how-to-guides/new-user-guides/manage-clusters/access-clusters/authorized-cluster-endpoint). |
+| **EKS** | Cluster has an explicit **endpoint** (public/private). Kubeconfig is generated with that endpoint. | Platform-managed endpoint (e.g. `cluster.region.eks.amazonaws.com`). [Cluster endpoint](https://docs.aws.amazon.com/eks/latest/userguide/cluster-endpoint.html). |
+| **RKE2** | Default kubeconfig uses `127.0.0.1`; docs say to replace with the RKE2 server IP/hostname when using from outside. | Explicit replacement or configured address. [Cluster access](https://docs.rke2.io/cluster_access). |
+| **kubeadm** | `kube-public/cluster-info` ConfigMap holds bootstrap kubeconfig with **controlPlaneEndpoint** (or advertise address). Used for join and discovery. | Set at init via `controlPlaneEndpoint`; cluster-info is the standard place. |
+
+Common idea: the “kubeconfig server URL” is a **cluster-level, configured** value (FQDN, endpoint, or control plane address), not “whatever the operator sees.” For minikube/kind, that often differs from the in-cluster or node IP (e.g. `127.0.0.1:port` from the host).
+
+### Our approach
+
+1. **Prefer `kube-public/cluster-info`**  
+   Standard bootstrap ConfigMap (kubeadm and many installers). If the cluster was set up with a proper control plane endpoint, cluster-info usually has a usable URL.
+
+2. **Fallback to `rest.Config`**  
+   If cluster-info is missing or unreadable, use the operator’s `rest.Config` (Host + CA). Works when the operator runs locally with a kubeconfig that already has the right server.
+
+3. **Override via env: `KUBECONFIG_SERVER_URL`**  
+   When cluster-info (or rest.Config) gives an internal/unreachable URL (e.g. minikube internal IP), the deployer sets the reachable URL (e.g. `https://127.0.0.1:32771` for minikube). Same idea as RKE2 “replace 127.0.0.1 with server IP.”
+
+4. **Override via ConfigMap (operator namespace)**  
+   Optional: read `kubeconfig-server-url` from a ConfigMap in the operator’s namespace (e.g. `ephemeral-operator-system`). This gives a **per-cluster** configuration (like Rancher’s FQDN or EKS endpoint) without relying on env vars in the deployment. Preferred in production: set once per cluster, works for minikube, EKS, RKE, and any installer.
+
+Priority order: **ConfigMap key** → **env `KUBECONFIG_SERVER_URL`** → cluster-info → rest.Config. CA always comes from cluster-info or rest.Config; only the server URL is overridden.
+
+This keeps the feature **cluster-agnostic**: the same code path works for minikube, EKS, Rancher-managed clusters, and kubeadm; the operator or platform just sets the appropriate URL (env or ConfigMap).
 
 ---
 

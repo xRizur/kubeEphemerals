@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -407,6 +408,114 @@ var _ = Describe("EphemeralEnv Controller", func() {
 					}
 					return false
 				}, timeout, interval).Should(BeTrue())
+			})
+		})
+
+		// =================================================================
+		// PHASE 9: DEVELOPER ACCESS RBAC (KUBECONFIG SELF-SERVICE)
+		// =================================================================
+
+		Describe("Phase 9: Developer Access RBAC", func() {
+			It("should create ServiceAccount developer-access in env namespace", func() {
+				By("Creating a new EphemeralEnv")
+				envName := "pr-rbac-sa"
+				expectedNamespace := "env-pr-rbac-sa"
+
+				ephemeralEnv = createTestEphemeralEnv(envName)
+				typeNamespacedName = types.NamespacedName{
+					Name:      envName,
+					Namespace: "default",
+				}
+
+				Expect(k8sClient.Create(ctx, ephemeralEnv)).To(Succeed())
+
+				By("Reconciling the EphemeralEnv")
+				_, err := reconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: typeNamespacedName,
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Checking ServiceAccount developer-access exists in env namespace")
+				sa := &corev1.ServiceAccount{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{
+						Namespace: expectedNamespace,
+						Name:      DeveloperAccessSA,
+					}, sa)
+				}, timeout, interval).Should(Succeed())
+				Expect(sa.Name).To(Equal(DeveloperAccessSA))
+				Expect(sa.Namespace).To(Equal(expectedNamespace))
+			})
+
+			It("should create Role ns-admin with full access in namespace", func() {
+				By("Creating a new EphemeralEnv")
+				envName := "pr-rbac-role"
+				expectedNamespace := "env-pr-rbac-role"
+
+				ephemeralEnv = createTestEphemeralEnv(envName)
+				typeNamespacedName = types.NamespacedName{
+					Name:      envName,
+					Namespace: "default",
+				}
+
+				Expect(k8sClient.Create(ctx, ephemeralEnv)).To(Succeed())
+
+				By("Reconciling the EphemeralEnv")
+				_, err := reconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: typeNamespacedName,
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Checking Role ns-admin exists with correct rules")
+				role := &rbacv1.Role{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{
+						Namespace: expectedNamespace,
+						Name:      NSAdminRoleName,
+					}, role)
+				}, timeout, interval).Should(Succeed())
+				Expect(role.Name).To(Equal(NSAdminRoleName))
+				Expect(role.Namespace).To(Equal(expectedNamespace))
+				Expect(role.Rules).To(HaveLen(1))
+				Expect(role.Rules[0].APIGroups).To(Equal([]string{"*"}))
+				Expect(role.Rules[0].Resources).To(Equal([]string{"*"}))
+				Expect(role.Rules[0].Verbs).To(Equal([]string{"*"}))
+			})
+
+			It("should create RoleBinding binding developer-access SA to ns-admin Role", func() {
+				By("Creating a new EphemeralEnv")
+				envName := "pr-rbac-binding"
+				expectedNamespace := "env-pr-rbac-binding"
+
+				ephemeralEnv = createTestEphemeralEnv(envName)
+				typeNamespacedName = types.NamespacedName{
+					Name:      envName,
+					Namespace: "default",
+				}
+
+				Expect(k8sClient.Create(ctx, ephemeralEnv)).To(Succeed())
+
+				By("Reconciling the EphemeralEnv")
+				_, err := reconciler.Reconcile(ctx, reconcile.Request{
+					NamespacedName: typeNamespacedName,
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				By("Checking RoleBinding exists and binds SA to Role")
+				rb := &rbacv1.RoleBinding{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, types.NamespacedName{
+						Namespace: expectedNamespace,
+						Name:      DeveloperAccessBindingName,
+					}, rb)
+				}, timeout, interval).Should(Succeed())
+				Expect(rb.Name).To(Equal(DeveloperAccessBindingName))
+				Expect(rb.RoleRef.Kind).To(Equal("Role"))
+				Expect(rb.RoleRef.Name).To(Equal(NSAdminRoleName))
+				Expect(rb.Subjects).To(HaveLen(1))
+				Expect(rb.Subjects[0].Kind).To(Equal(rbacv1.ServiceAccountKind))
+				Expect(rb.Subjects[0].Name).To(Equal(DeveloperAccessSA))
+				Expect(rb.Subjects[0].Namespace).To(Equal(expectedNamespace))
 			})
 		})
 
