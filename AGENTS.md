@@ -1,20 +1,191 @@
 # ephemeral-operator - AI Agent Guide
 
-## Project Structure
+> **Last Updated:** January 30, 2026
 
-**Single-group layout (default):**
+## Development Environment
+
+**This project is developed on Windows with WSL (Windows Subsystem for Linux).**
+
+All Go commands, tests, and the operator MUST be run inside WSL:
+
+```powershell
+# From PowerShell - run commands in WSL
+wsl bash -c "cd /mnt/c/Users/<user>/github/kubeEphemerals && <command>"
+
+# Or enter WSL interactive session
+wsl
+cd /mnt/c/Users/<user>/github/kubeEphemerals
 ```
-cmd/main.go                    Manager entry (registers controllers/webhooks)
-api/<version>/*_types.go       CRD schemas (+kubebuilder markers)
-api/<version>/zz_generated.*   Auto-generated (DO NOT EDIT)
-internal/controller/*          Reconciliation logic
-internal/webhook/*             Validation/defaulting (if present)
-config/crd/bases/*             Generated CRDs (DO NOT EDIT)
-config/rbac/role.yaml          Generated RBAC (DO NOT EDIT)
-config/samples/*               Example CRs (edit these)
-Makefile                       Build/test/deploy commands
-PROJECT                        Kubebuilder metadata Auto-generated (DO NOT EDIT)
+
+**Important:** The Kubernetes cluster (minikube) runs inside WSL. Use `wsl bash -c` for all kubectl, helm, and go commands.
+
+---
+
+## Development Philosophy: TDD (Test-Driven Development)
+
+**Tests are ESSENTIAL and MANDATORY. No code without tests.**
+
 ```
+┌─────────────────────────────────────────────────────────────┐
+│                      TDD Cycle                              │
+│                                                             │
+│    ┌─────────┐     ┌─────────┐     ┌─────────────┐         │
+│    │  RED    │────▶│  GREEN  │────▶│  REFACTOR   │         │
+│    │ (Test)  │     │ (Code)  │     │  (Clean)    │         │
+│    └─────────┘     └─────────┘     └─────────────┘         │
+│         │                                   │               │
+│         └───────────────────────────────────┘               │
+│                      Repeat                                 │
+└─────────────────────────────────────────────────────────────┘
+
+1. RED:    Write a failing test FIRST
+2. GREEN:  Write minimal code to pass the test
+3. REFACTOR: Clean up while keeping tests green
+```
+
+### Running Tests
+
+```bash
+# Run ALL tests (from WSL)
+wsl bash -c "cd /mnt/c/Users/<user>/github/kubeEphemerals && make test"
+
+# Run controller tests only
+wsl bash -ic "cd /mnt/c/Users/<user>/github/kubeEphemerals && go test -v ./internal/controller/..."
+
+# Run UI tests only
+wsl bash -ic "cd /mnt/c/Users/<user>/github/kubeEphemerals && go test -v ./internal/ui/..."
+
+# Run with coverage report
+wsl bash -ic "cd /mnt/c/Users/<user>/github/kubeEphemerals && go test -coverprofile=cover.out ./... && go tool cover -html=cover.out"
+```
+
+### Test Coverage Requirements
+
+- **Controller tests:** `internal/controller/*_test.go` - Tests reconciliation logic with envtest
+- **UI tests:** `internal/ui/*_test.go` - Tests API handlers and HTTP responses
+- **Type tests:** `api/v1alpha1/*_test.go` - Tests CRD validation and defaults
+- **Target coverage:** >80% for business logic
+
+---
+
+## Current Project Status
+
+### Completed Phases ✅
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 1 | Project Scaffolding & CRD Types | ✅ Complete |
+| 2 | Namespace Lifecycle | ✅ Complete |
+| 3 | NetworkPolicy & Security | ✅ Complete |
+| 4 | TTL & Automatic Cleanup | ✅ Complete |
+| 5 | Helm SDK Integration | ✅ Complete |
+| 6 | Gateway API & HTTPRoute | ✅ Complete |
+| 7 | Web UI Dashboard | ✅ Complete |
+| 8 | Service Catalog (Templates) | ✅ Complete |
+
+### In Progress 🚧
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 9 | CI/CD Integration | 🚧 Planned |
+| 10 | Production Hardening | 🚧 Planned |
+
+---
+
+## Project Structure (Current)
+
+```
+ephemeral-operator/
+├── api/v1alpha1/
+│   ├── ephemeralenv_types.go          # EphemeralEnv CRD schema
+│   ├── environmenttemplate_types.go   # EnvironmentTemplate CRD schema
+│   ├── ephemeralenv_helpers.go        # Helper methods for CRD
+│   ├── ephemeralenv_types_test.go     # Type validation tests
+│   ├── groupversion_info.go           # API group registration
+│   ├── suite_test.go                  # Test suite setup
+│   └── zz_generated.deepcopy.go       # Generated (DO NOT EDIT)
+│
+├── cmd/
+│   └── main.go                        # Entry point (manager + UI server)
+│
+├── config/
+│   ├── crd/bases/                     # Generated CRDs (DO NOT EDIT)
+│   ├── rbac/role.yaml                 # Generated RBAC (DO NOT EDIT)
+│   ├── samples/
+│   │   ├── ephemeral_v1alpha1_ephemeralenv.yaml
+│   │   ├── ephemeral_v1alpha1_environmenttemplate.yaml
+│   │   └── gateway_class_setup.yaml
+│   └── ...
+│
+├── internal/
+│   ├── controller/
+│   │   ├── ephemeralenv_controller.go           # Main reconciler (800+ lines)
+│   │   ├── ephemeralenv_controller_test.go      # Controller tests (50+ tests)
+│   │   ├── environmenttemplate_controller_test.go
+│   │   └── suite_test.go                        # EnvTest setup
+│   │
+│   ├── helm/
+│   │   └── client.go                  # Helm SDK client wrapper
+│   │
+│   └── ui/
+│       ├── server.go                  # HTTP server & routes
+│       ├── server_test.go             # UI API tests (47+ tests)
+│       ├── templates.go               # Templates API handlers
+│       ├── static/                    # Static assets (CSS, JS)
+│       └── templates/
+│           ├── base.html              # Base layout
+│           ├── global_dashboard.html  # Main dashboard (Environments + Templates)
+│           └── env_dashboard.html     # Environment details page
+│
+├── Makefile                           # Build commands
+├── ARCHITECTURE.md                    # Detailed architecture doc
+├── AGENTS.md                          # This file
+└── PROJECT                            # Kubebuilder metadata (DO NOT EDIT)
+```
+
+---
+
+## Compiling & Running
+
+### Build (from WSL)
+
+```bash
+# Compile all packages
+wsl bash -ic "cd /mnt/c/Users/<user>/github/kubeEphemerals && go build ./..."
+
+# Generate CRDs and DeepCopy (after editing *_types.go)
+wsl bash -ic "cd /mnt/c/Users/<user>/github/kubeEphemerals && make manifests generate"
+
+# Install CRDs to cluster
+wsl bash -ic "cd /mnt/c/Users/<user>/github/kubeEphemerals && make install"
+```
+
+### Running the Operator (Background Process)
+
+**IMPORTANT:** Always kill the old operator before starting a new one!
+
+```bash
+# 1. Kill existing operator
+wsl bash -ic "pkill -9 main 2>/dev/null; pkill -9 'go run' 2>/dev/null"
+
+# 2. Start operator in background
+wsl bash -ic "cd /mnt/c/Users/<user>/github/kubeEphemerals && nohup go run ./cmd/main.go > /tmp/operator.log 2>&1 &"
+
+# 3. Check logs
+wsl bash -ic "tail -f /tmp/operator.log"
+```
+
+The operator runs:
+- **Controller Manager** on port 8081 (health probes)
+- **UI Server** on port **8082** (dashboard)
+
+### Accessing the UI
+
+After starting the operator, open: **http://localhost:8082**
+
+---
+
+## Multi-group Layout (Reference)
 
 **Multi-group layout** (for projects with multiple API groups):
 ```
@@ -33,6 +204,8 @@ Multi-group layout organizes APIs by group name (e.g., `batch`, `apps`). Check t
 5. Update import paths in all files
 6. Fix `path` in `PROJECT` file for each resource
 7. Update test suite CRD paths (add one more `..` to relative paths)
+
+---
 
 ## Critical Rules
 
