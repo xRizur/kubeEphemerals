@@ -91,7 +91,7 @@ type ComponentAPIResponse struct {
 func convertTemplateToAPIResponse(t *ephemeralv1alpha1.EnvironmentTemplate) TemplateAPIResponse {
 	components := make([]ComponentAPIResponse, 0, len(t.Spec.Components))
 	for _, c := range t.Spec.Components {
-		var values interface{}
+		var values any
 		if c.Values != nil && len(c.Values.Raw) > 0 {
 			values = c.Values.Raw
 		}
