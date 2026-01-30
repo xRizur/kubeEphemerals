@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"helm.sh/helm/v3/pkg/action"
-	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/release"
@@ -53,7 +52,7 @@ type InstallOptions struct {
 	RepoURL     string
 	ChartName   string
 	Version     string
-	Values      map[string]interface{}
+	Values      map[string]any
 	Wait        bool
 	Timeout     time.Duration
 }
@@ -84,7 +83,7 @@ func (c *SDKClient) getActionConfig(namespace string) (*action.Configuration, er
 	actionConfig := new(action.Configuration)
 
 	// Use the default Kubernetes configuration
-	if err := actionConfig.Init(c.settings.RESTClientGetter(), namespace, "secret", func(format string, v ...interface{}) {
+	if err := actionConfig.Init(c.settings.RESTClientGetter(), namespace, "secret", func(format string, v ...any) {
 		// Log debug messages
 		log.Log.V(1).Info(fmt.Sprintf(format, v...))
 	}); err != nil {
@@ -117,7 +116,7 @@ func (c *SDKClient) Install(ctx context.Context, opts InstallOptions) (*ReleaseI
 		return nil, fmt.Errorf("failed to download chart: %w", err)
 	}
 
-	chart, err := loader.Load(chartPath)
+	loadedChart, err := loader.Load(chartPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load chart: %w", err)
 	}
@@ -137,7 +136,7 @@ func (c *SDKClient) Install(ctx context.Context, opts InstallOptions) (*ReleaseI
 	// Use values directly (already map[string]interface{})
 	vals := opts.Values
 	if vals == nil {
-		vals = make(map[string]interface{})
+		vals = make(map[string]any)
 	}
 
 	logger.Info("Installing Helm chart",
@@ -146,7 +145,7 @@ func (c *SDKClient) Install(ctx context.Context, opts InstallOptions) (*ReleaseI
 		"version", opts.Version,
 		"namespace", opts.Namespace)
 
-	rel, err := install.RunWithContext(ctx, chart, vals)
+	rel, err := install.RunWithContext(ctx, loadedChart, vals)
 	if err != nil {
 		return nil, fmt.Errorf("failed to install chart: %w", err)
 	}
@@ -163,7 +162,7 @@ func (c *SDKClient) upgrade(ctx context.Context, actionConfig *action.Configurat
 		return nil, fmt.Errorf("failed to download chart: %w", err)
 	}
 
-	chart, err := loader.Load(chartPath)
+	loadedChart, err := loader.Load(chartPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load chart: %w", err)
 	}
@@ -180,7 +179,7 @@ func (c *SDKClient) upgrade(ctx context.Context, actionConfig *action.Configurat
 	// Use values directly (already map[string]interface{})
 	vals := opts.Values
 	if vals == nil {
-		vals = make(map[string]interface{})
+		vals = make(map[string]any)
 	}
 
 	logger.Info("Upgrading Helm release",
@@ -188,7 +187,7 @@ func (c *SDKClient) upgrade(ctx context.Context, actionConfig *action.Configurat
 		"chart", opts.ChartName,
 		"version", opts.Version)
 
-	rel, err := upgrade.RunWithContext(ctx, opts.ReleaseName, chart, vals)
+	rel, err := upgrade.RunWithContext(ctx, opts.ReleaseName, loadedChart, vals)
 	if err != nil {
 		return nil, fmt.Errorf("failed to upgrade release: %w", err)
 	}
@@ -371,9 +370,3 @@ func (m *MockClient) IsInstalled(ctx context.Context, releaseName, namespace str
 // Ensure MockClient implements Client interface
 var _ Client = (*MockClient)(nil)
 
-// chartFromReader creates a chart from chart.Metadata for testing
-func chartFromReader(metadata *chart.Metadata) *chart.Chart {
-	return &chart.Chart{
-		Metadata: metadata,
-	}
-}

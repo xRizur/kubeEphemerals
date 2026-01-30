@@ -26,7 +26,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -80,7 +79,6 @@ type Server struct {
 	templateRegistry *TemplateRegistry
 	upgrader         websocket.Upgrader
 	server           *http.Server
-	mu               sync.RWMutex
 }
 
 // NewServer creates a new UI server
@@ -227,7 +225,7 @@ func (s *Server) Start(ctx context.Context) error {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		s.server.Shutdown(shutdownCtx)
+		_ = s.server.Shutdown(shutdownCtx)
 	}()
 
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -521,10 +519,10 @@ func (s *Server) getPodLogs(w http.ResponseWriter, r *http.Request, envName, pod
 		s.jsonError(w, fmt.Sprintf("Failed to get logs: %v", err), http.StatusInternalServerError)
 		return
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	w.Header().Set("Content-Type", "text/plain")
-	io.Copy(w, stream)
+	_, _ = io.Copy(w, stream)
 }
 
 func (s *Server) handlePodLogsStream(w http.ResponseWriter, r *http.Request) {
@@ -554,10 +552,10 @@ func (s *Server) streamPodLogs(w http.ResponseWriter, r *http.Request, envName, 
 		log.Error(err, "Failed to upgrade to WebSocket")
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if s.kubeClient == nil {
-		conn.WriteMessage(websocket.TextMessage, []byte("Error: Kubernetes client not available"))
+		_ = conn.WriteMessage(websocket.TextMessage, []byte("Error: Kubernetes client not available"))
 		return
 	}
 
@@ -568,10 +566,10 @@ func (s *Server) streamPodLogs(w http.ResponseWriter, r *http.Request, envName, 
 	req := s.kubeClient.CoreV1().Pods(env.Status.ActiveNamespace).GetLogs(podName, opts)
 	stream, err := req.Stream(r.Context())
 	if err != nil {
-		conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: %v", err)))
+		_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: %v", err)))
 		return
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	// Stream logs to WebSocket
 	buf := make([]byte, 4096)
@@ -579,7 +577,7 @@ func (s *Server) streamPodLogs(w http.ResponseWriter, r *http.Request, envName, 
 		n, err := stream.Read(buf)
 		if err != nil {
 			if err != io.EOF {
-				conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: %v", err)))
+				_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: %v", err)))
 			}
 			break
 		}
@@ -665,13 +663,13 @@ func (s *Server) renderTemplate(w http.ResponseWriter, name string, data interfa
 
 func (s *Server) jsonResponse(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
 }
 
 func (s *Server) jsonError(w http.ResponseWriter, message string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": message})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
 func isPodReady(pod *corev1.Pod) bool {

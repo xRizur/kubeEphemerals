@@ -56,12 +56,12 @@ func findCondition(conditions []metav1.Condition, conditionType string) *metav1.
 // reconcileWithRetry calls Reconcile multiple times until no Requeue is requested
 // This handles the finalizer addition which requires an extra reconcile
 func reconcileWithRetry(ctx context.Context, reconciler *EphemeralEnvReconciler, req reconcile.Request, maxRetries int) error {
-	for i := 0; i < maxRetries; i++ {
+	for range maxRetries {
 		result, err := reconciler.Reconcile(ctx, req)
 		if err != nil {
 			return err
 		}
-		if !result.Requeue && result.RequeueAfter == 0 {
+		if result.RequeueAfter == 0 {
 			return nil
 		}
 		// Small sleep to let the system stabilize
@@ -1555,7 +1555,7 @@ var _ = Describe("EphemeralEnv Controller", func() {
 
 				By("Checking install was not called again")
 				// Install should check IsInstalled first and skip if already installed
-				Expect(len(mockHelmClient.InstallCalls)).To(Equal(initialInstallCount))
+				Expect(mockHelmClient.InstallCalls).To(HaveLen(initialInstallCount))
 			})
 		})
 
@@ -1692,7 +1692,7 @@ var _ = Describe("EphemeralEnv Controller", func() {
 				By("Reconciling - should requeue (no match)")
 				result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 				// Either error or requeue is acceptable
-				Expect(err != nil || result.Requeue || result.RequeueAfter > 0).To(BeTrue())
+				Expect(err != nil || result.RequeueAfter > 0).To(BeTrue())
 
 				By("Cleanup")
 				Expect(k8sClient.Delete(ctx, svc)).To(Succeed())
@@ -1796,7 +1796,7 @@ var _ = Describe("EphemeralEnv Controller", func() {
 				By("Second reconcile - no services exist, should requeue")
 				result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 				// Either error or requeue is acceptable when waiting for service
-				Expect(err != nil || result.Requeue || result.RequeueAfter > 0).To(BeTrue())
+				Expect(err != nil || result.RequeueAfter > 0).To(BeTrue())
 			})
 		})
 	})

@@ -41,6 +41,12 @@ import (
 	"github.com/maciekmm/kubeEphemerals/internal/helm"
 )
 
+// Component status constants
+const (
+	statusError    = "Error"
+	statusDeployed = "Deployed"
+)
+
 // EphemeralEnvReconciler reconciles a EphemeralEnv object
 type EphemeralEnvReconciler struct {
 	client.Client
@@ -207,9 +213,8 @@ func (r *EphemeralEnvReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 		effectiveServiceName = discoveredService
 		logger.Info("Service discovered", "serviceName", effectiveServiceName, "port", *ephemeralEnv.Spec.ServicePort)
-	} else {
-		// Traditional mode: Deploy Helm after HTTPRoute (existing behavior)
 	}
+	// else: Traditional mode - Deploy Helm after HTTPRoute (existing behavior)
 
 	// Step 10c/10: Ensure HTTPRoute for Gateway API routing
 	if err := r.ensureHTTPRoute(ctx, ephemeralEnv, effectiveServiceName); err != nil {
@@ -866,16 +871,7 @@ func (r *EphemeralEnvReconciler) resolveComponents(ctx context.Context, env *eph
 			// Convert template components to deployed components
 			components := make([]ephemeralv1alpha1.DeployedComponentSpec, 0, len(template.Spec.Components))
 			for _, tc := range template.Spec.Components {
-				components = append(components, ephemeralv1alpha1.DeployedComponentSpec{
-					Name:        tc.Name,
-					Repository:  tc.Repository,
-					Chart:       tc.Chart,
-					Version:     tc.Version,
-					ServiceName: tc.ServiceName,
-					ServicePort: tc.ServicePort,
-					Values:      tc.Values,
-					Primary:     tc.Primary,
-				})
+			components = append(components, ephemeralv1alpha1.DeployedComponentSpec(tc))
 			}
 			logger.Info("Using components from EnvironmentTemplate", "template", template.Name, "count", len(components))
 			return components
@@ -939,14 +935,14 @@ func (r *EphemeralEnvReconciler) deployComponent(ctx context.Context, env *ephem
 	// Check if already installed
 	isInstalled, err := r.HelmClient.IsInstalled(ctx, releaseName, namespace)
 	if err != nil {
-		status.Status = "Error"
+		status.Status = statusError
 		status.Message = fmt.Sprintf("Failed to check status: %v", err)
 		return status, fmt.Errorf("failed to check Helm release status: %w", err)
 	}
 
 	if isInstalled {
 		logger.Info("Helm release already installed, skipping", "release", releaseName, "namespace", namespace, "component", comp.Name)
-		status.Status = "Deployed"
+		status.Status = statusDeployed
 		status.Message = "Already installed"
 		return status, nil
 	}
@@ -955,7 +951,7 @@ func (r *EphemeralEnvReconciler) deployComponent(ctx context.Context, env *ephem
 	var values map[string]interface{}
 	if comp.Values != nil && len(comp.Values.Raw) > 0 {
 		if err := json.Unmarshal(comp.Values.Raw, &values); err != nil {
-			status.Status = "Error"
+			status.Status = statusError
 			status.Message = fmt.Sprintf("Failed to parse values: %v", err)
 			return status, fmt.Errorf("failed to parse Helm values: %w", err)
 		}
@@ -981,7 +977,7 @@ func (r *EphemeralEnvReconciler) deployComponent(ctx context.Context, env *ephem
 	// Install the chart
 	releaseInfo, err := r.HelmClient.Install(ctx, opts)
 	if err != nil {
-		status.Status = "Error"
+		status.Status = statusError
 		status.Message = fmt.Sprintf("Failed to install: %v", err)
 		return status, fmt.Errorf("failed to install Helm chart: %w", err)
 	}
@@ -993,7 +989,7 @@ func (r *EphemeralEnvReconciler) deployComponent(ctx context.Context, env *ephem
 		"component", comp.Name)
 
 	now := metav1.Now()
-	status.Status = "Deployed"
+	status.Status = statusDeployed
 	status.Message = fmt.Sprintf("Helm release %s installed successfully", releaseInfo.Name)
 	status.LastDeployed = &now
 

@@ -92,12 +92,15 @@ func main() {
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.StringVar(&uiAddr, "ui-bind-address", ":8082", "The address the UI server binds to.")
-	flag.StringVar(&uiPlatformDomain, "ui-platform-domain", "platform.local", "The domain for the global platform dashboard.")
+	flag.StringVar(&uiPlatformDomain, "ui-platform-domain", "platform.local",
+		"The domain for the global platform dashboard.")
 	flag.StringVar(&uiBaseDomain, "ui-base-domain", "preview.example.com", "The base domain for environments.")
 	var operatorService string
 	var operatorNamespace string
-	flag.StringVar(&operatorService, "operator-service", "", "The service name for the operator UI (enables admin HTTPRoute creation).")
-	flag.StringVar(&operatorNamespace, "operator-namespace", "", "The namespace where the operator is deployed (for admin HTTPRoute).")
+	flag.StringVar(&operatorService, "operator-service", "",
+		"The service name for the operator UI (enables admin HTTPRoute creation).")
+	flag.StringVar(&operatorNamespace, "operator-namespace", "",
+		"The namespace where the operator is deployed (for admin HTTPRoute).")
 	opts := zap.Options{
 		Development: true,
 	}
