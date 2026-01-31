@@ -128,7 +128,7 @@ jobs:
       - name: Run e2e tests (Ginkgo with JUnit report)
         run: |
           cd "$GITHUB_WORKSPACE"
-          ginkgo --junit-report=junit-e2e.xml ./test/e2e -- -v -ginkgo.v
+          ginkgo --junit-report="$GITHUB_WORKSPACE/junit-e2e.xml" --ginkgo.v ./test/e2e --
         env:
           GOFLAGS: -tags=e2e
           CERT_MANAGER_INSTALL_SKIP: "true"
