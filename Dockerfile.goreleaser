@@ -1,0 +1,7 @@
+# For GoReleaser: build context has only Dockerfile + pre-built "manager" binary.
+# Do not use for local "make docker-build" (that uses Dockerfile).
+FROM gcr.io/distroless/static:nonroot
+WORKDIR /
+COPY manager .
+USER 65532:65532
+ENTRYPOINT ["/manager"]
