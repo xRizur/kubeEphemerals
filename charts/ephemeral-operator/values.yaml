@@ -4,9 +4,11 @@
 
 # -- Image configuration
 image:
-  repository: ghcr.io/maciekmm/kubeephemerals/ephemeral-operator
+  repository: ghcr.io/xrizur/kubeephemerals
   tag: latest
   pullPolicy: IfNotPresent
+  # -- For private GHCR: create secret and pass name, e.g. [ghcr-secret]
+  pullSecrets: []
 
 # -- Replica count for the controller manager
 replicaCount: 1

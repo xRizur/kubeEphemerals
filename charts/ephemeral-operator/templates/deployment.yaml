@@ -17,6 +17,10 @@ spec:
       labels:
         {{- include "ephemeral-operator.selectorLabels" . | nindent 8 }}
     spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         seccompProfile:
