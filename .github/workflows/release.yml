@@ -55,6 +55,11 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Set lowercase repo env (GHCR requires lowercase)
+        run: |
+          echo "GITHUB_REPOSITORY_OWNER_LOWER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          echo "GITHUB_REPOSITORY_NAME_LOWER=$(echo '${{ github.event.repository.name }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
