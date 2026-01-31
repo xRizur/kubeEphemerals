@@ -39,7 +39,7 @@ jobs:
           configuration: release_changelog_builder.json
           fromTag: ${{ steps.version.outputs.previous_tag }}
           toTag: ${{ steps.version.outputs.new_tag }}
-          outputFile: release_notes.md
+          outputFile: ${{ runner.temp }}/release_notes.md
           token: ${{ secrets.GITHUB_TOKEN }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -59,7 +59,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
-          args: release --clean --release-header=release_notes.md
+          args: release --clean --release-header=${{ runner.temp }}/release_notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
