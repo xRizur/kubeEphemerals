@@ -40,8 +40,8 @@ snapshot:
 
 dockers:
   - image_templates:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/{{ .Env.GITHUB_REPOSITORY_NAME | lower }}:{{ .Tag }}"
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/{{ .Env.GITHUB_REPOSITORY_NAME | lower }}:latest"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER_LOWER }}/{{ .Env.GITHUB_REPOSITORY_NAME_LOWER }}:{{ .Tag }}"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER_LOWER }}/{{ .Env.GITHUB_REPOSITORY_NAME_LOWER }}:latest"
     dockerfile: Dockerfile
     use: buildx
     build_flag_templates:
