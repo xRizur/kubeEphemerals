@@ -39,10 +39,11 @@ snapshot:
 # Changelog: workflow generates release_notes.md and passes via --release-header
 
 dockers:
-  - image_templates:
+  - ids: [ephemeral-operator]
+    image_templates:
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER_LOWER }}/{{ .Env.GITHUB_REPOSITORY_NAME_LOWER }}:{{ .Tag }}"
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER_LOWER }}/{{ .Env.GITHUB_REPOSITORY_NAME_LOWER }}:latest"
-    dockerfile: Dockerfile
+    dockerfile: Dockerfile.goreleaser
     use: buildx
     build_flag_templates:
       - "--platform=linux/amd64"
