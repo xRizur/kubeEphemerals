@@ -59,7 +59,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
-          args: release --clean --release-header=${{ runner.temp }}/release_notes.md
+          args: release --clean --release-notes=${{ runner.temp }}/release_notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
@@ -67,3 +67,20 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GORELEASER_CURRENT_TAG: ${{ steps.version.outputs.new_tag }}
           GORELEASER_PREVIOUS_TAG: ${{ steps.version.outputs.previous_tag }}
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.17.0"
+
+      - name: Package and push Helm chart (OCI)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.new_tag }}
+        run: |
+          CHART_VERSION="${TAG#v}"
+          sed -i "s/^version: .*/version: ${CHART_VERSION}/" charts/ephemeral-operator/Chart.yaml
+          sed -i "s/^appVersion: .*/appVersion: \"${CHART_VERSION}\"/" charts/ephemeral-operator/Chart.yaml
+          helm package charts/ephemeral-operator
+          echo "$GITHUB_TOKEN" | helm registry login ghcr.io -u ${{ github.repository_owner }} --password-stdin
+          helm push ephemeral-operator-${CHART_VERSION}.tgz oci://ghcr.io/${{ github.repository_owner }}/charts
