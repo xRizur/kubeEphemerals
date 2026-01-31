@@ -1,8 +1,10 @@
+# Disabled – unit tests run in ci.yml. Use workflow_dispatch to run manually if needed.
 name: Tests
 
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
+  # push:
+  # pull_request:
 
 jobs:
   test:

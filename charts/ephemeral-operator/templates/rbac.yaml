@@ -1,0 +1,191 @@
+{{/*
+RBAC: ServiceAccount, ClusterRoles, ClusterRoleBindings, Role, RoleBindings for ephemeral-operator.
+*/}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "ephemeral-operator.serviceAccountName" . }}
+  namespace: {{ include "ephemeral-operator.namespace" . }}
+  labels:
+    {{- include "ephemeral-operator.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}-role
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [get, list, watch]
+  - apiGroups: [ephemeral.ephemeralenv.io]
+    resources: [environmenttemplates]
+    verbs: [get, list, watch]
+  - apiGroups: [ephemeral.ephemeralenv.io]
+    resources: [environmenttemplates/status, ephemeralenvs/status]
+    verbs: [get, patch, update]
+  - apiGroups: [ephemeral.ephemeralenv.io]
+    resources: [ephemeralenvs]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [ephemeral.ephemeralenv.io]
+    resources: [ephemeralenvs/finalizers]
+    verbs: [update]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes, referencegrants]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [create, delete, get, list, patch, update, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}-rolebinding
+  labels:
+    {{- include "ephemeral-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ephemeral-operator.fullname" . }}-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ephemeral-operator.serviceAccountName" . }}
+    namespace: {{ include "ephemeral-operator.namespace" . }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}-leader-election
+  namespace: {{ include "ephemeral-operator.namespace" . }}
+  labels:
+    {{- include "ephemeral-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}-leader-election
+  namespace: {{ include "ephemeral-operator.namespace" . }}
+  labels:
+    {{- include "ephemeral-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "ephemeral-operator.fullname" . }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ephemeral-operator.serviceAccountName" . }}
+    namespace: {{ include "ephemeral-operator.namespace" . }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}-metrics-auth
+rules:
+  - apiGroups: [authentication.k8s.io]
+    resources: [tokenreviews]
+    verbs: [create]
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}-metrics-auth
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ephemeral-operator.fullname" . }}-metrics-auth
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ephemeral-operator.serviceAccountName" . }}
+    namespace: {{ include "ephemeral-operator.namespace" . }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}-metrics-reader
+rules:
+  - nonResourceURLs: ["/metrics"]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}-ephemeralenv-admin
+  labels:
+    {{- include "ephemeral-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [ephemeral.ephemeralenv.io]
+    resources: [ephemeralenvs]
+    verbs: ['*']
+  - apiGroups: [ephemeral.ephemeralenv.io]
+    resources: [ephemeralenvs/status]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}-ephemeralenv-editor
+  labels:
+    {{- include "ephemeral-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [ephemeral.ephemeralenv.io]
+    resources: [ephemeralenvs]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [ephemeral.ephemeralenv.io]
+    resources: [ephemeralenvs/status]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}-ephemeralenv-viewer
+  labels:
+    {{- include "ephemeral-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [ephemeral.ephemeralenv.io]
+    resources: [ephemeralenvs]
+    verbs: [get, list, watch]
+  - apiGroups: [ephemeral.ephemeralenv.io]
+    resources: [ephemeralenvs/status]
+    verbs: [get]
+---
+# Allow manager to read kubeconfig server URL override ConfigMap
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}-kubeconfig-configmap-reader
+  namespace: {{ include "ephemeral-operator.namespace" . }}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [{{ .Values.config.kubeconfigConfigMapName | quote }}]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}-kubeconfig-configmap-reader
+  namespace: {{ include "ephemeral-operator.namespace" . }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "ephemeral-operator.fullname" . }}-kubeconfig-configmap-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ephemeral-operator.serviceAccountName" . }}
+    namespace: {{ include "ephemeral-operator.namespace" . }}

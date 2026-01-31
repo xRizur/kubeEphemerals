@@ -1,8 +1,10 @@
+# Disabled – e2e runs in ci.yml. Use workflow_dispatch to run manually if needed.
 name: E2E Tests
 
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
+  # push:
+  # pull_request:
 
 jobs:
   test-e2e:

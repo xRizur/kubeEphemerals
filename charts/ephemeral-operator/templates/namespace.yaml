@@ -1,0 +1,10 @@
+{{- if .Values.namespaceOverride }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespaceOverride }}
+  labels:
+    {{- include "ephemeral-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/name: ephemeral-operator
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}

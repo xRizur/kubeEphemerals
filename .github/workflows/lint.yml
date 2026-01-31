@@ -1,8 +1,10 @@
+# Disabled – lint runs in ci.yml. Use workflow_dispatch to run manually if needed.
 name: Lint
 
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
+  # push:
+  # pull_request:
 
 jobs:
   lint:

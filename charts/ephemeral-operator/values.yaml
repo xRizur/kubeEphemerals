@@ -1,0 +1,57 @@
+# Default values for ephemeral-operator.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# -- Image configuration
+image:
+  repository: ghcr.io/maciekmm/kubeephemerals/ephemeral-operator
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# -- Replica count for the controller manager
+replicaCount: 1
+
+# -- Controller manager container resources (from config/manager/manager.yaml)
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# -- Application/operator configuration (env and CLI args)
+config:
+  # Default TTL for ephemeral environments (e.g. "24h", "2h"). Used as UI default / template default hint.
+  defaultTTL: "24h"
+  # External API URL for generated kubeconfigs (overrides in-cluster URL). Maps to KUBECONFIG_SERVER_URL env.
+  externalApiUrl: ""
+  # Admin group for RBAC / dashboard access (optional). Maps to ADMIN_GROUP env.
+  adminGroup: ""
+  # Leader election for HA
+  leaderElect: true
+  # Metrics bind address (use ":8443" for HTTPS, ":8080" for HTTP, "0" to disable)
+  metricsBindAddress: ":8443"
+  # UI server bind address
+  uiBindAddress: ":8082"
+  # UI platform domain (global dashboard)
+  uiPlatformDomain: "platform.local"
+  # UI base domain for environments
+  uiBaseDomain: "preview.example.com"
+  # Operator service name (for admin HTTPRoute creation). Leave empty to disable.
+  operatorService: ""
+  # Operator namespace (for admin HTTPRoute and kubeconfig ConfigMap). Defaults to release namespace.
+  operatorNamespace: ""
+  # ConfigMap name for kubeconfig server URL override (in operator namespace)
+  kubeconfigConfigMapName: "ephemeral-operator-ui-config"
+
+# -- Namespace override (defaults to release namespace)
+namespaceOverride: ""
+
+# -- Service account
+serviceAccount:
+  create: true
+  name: ""
+
+# -- Install CRDs (when true, chart installs CRDs from crds/; set false if you manage CRDs separately)
+installCRDs: true

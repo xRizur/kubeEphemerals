@@ -376,6 +376,123 @@ var _ = Describe("Manager", Ordered, func() {
 	})
 })
 
+// HelmChartNamespace is the namespace used when installing via Helm in e2e.
+// Use a different namespace than Manager (ephemeral-operator-system) to avoid
+// conflicts when both suites run (e.g. namespace Terminating).
+const helmChartNamespace = "ephemeral-operator-helm-system"
+
+// HelmReleaseName is the Helm release name used in e2e.
+const helmReleaseName = "ephemeral-operator"
+
+var _ = Describe("Helm chart", Ordered, func() {
+	// Helm chart e2e: install via Helm (after Manager/Kustomize tests have run and cleaned up),
+	// then verify pod, CRDs, and that CRs can be created.
+	BeforeAll(func() {
+		By("getting project dir for chart path")
+		projectDir, err := utils.GetProjectDir()
+		Expect(err).NotTo(HaveOccurred())
+		chartPath := filepath.Join(projectDir, "charts", "ephemeral-operator")
+		info, err := os.Stat(chartPath)
+		Expect(err).NotTo(HaveOccurred(), "chart path should exist")
+		Expect(info.IsDir()).To(BeTrue(), "chart path should be a directory")
+
+		// Parse managerImage (e.g. "example.com/ephemeral-operator:v0.0.1") into repo and tag
+		lastColon := strings.LastIndex(managerImage, ":")
+		imageRepo := managerImage
+		imageTag := "latest"
+		if lastColon > 0 {
+			imageRepo = managerImage[:lastColon]
+			imageTag = managerImage[lastColon+1:]
+		}
+
+		By("installing operator via Helm chart")
+		cmd := exec.Command("helm", "upgrade", "--install", helmReleaseName, chartPath,
+			"--namespace", helmChartNamespace,
+			"--create-namespace",
+			"--set", "image.repository="+imageRepo,
+			"--set", "image.tag="+imageTag,
+			"--set", "image.pullPolicy=IfNotPresent",
+			"--set", "config.metricsBindAddress=0", // disable metrics for simpler e2e
+		)
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to install Helm chart")
+	})
+
+	AfterAll(func() {
+		By("uninstalling Helm release")
+		cmd := exec.Command("helm", "uninstall", helmReleaseName, "--namespace", helmChartNamespace)
+		_, _ = utils.Run(cmd)
+		By("removing Helm chart namespace")
+		cmd = exec.Command("kubectl", "delete", "ns", helmChartNamespace, "--ignore-not-found", "--wait=false")
+		_, _ = utils.Run(cmd)
+	})
+
+	SetDefaultEventuallyTimeout(2 * time.Minute)
+	SetDefaultEventuallyPollingInterval(time.Second)
+
+	Context("Helm release", func() {
+		It("should install and run the operator pod", func() {
+			By("waiting for operator pod to be Running")
+			Eventually(func() error {
+				cmd := exec.Command("kubectl", "get", "pods", "-l", "app.kubernetes.io/name=ephemeral-operator",
+					"-n", helmChartNamespace, "-o", "jsonpath={.items[0].status.phase}")
+				out, err := utils.Run(cmd)
+				if err != nil {
+					return err
+				}
+				if strings.TrimSpace(out) != "Running" {
+					return fmt.Errorf("pod phase is %q", out)
+				}
+				return nil
+			}).Should(Succeed())
+		})
+
+		It("should have CRDs installed", func() {
+			By("checking EphemeralEnv CRD exists")
+			cmd := exec.Command("kubectl", "get", "crd", "ephemeralenvs.ephemeral.ephemeralenv.io")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "EphemeralEnv CRD should exist")
+
+			By("checking EnvironmentTemplate CRD exists")
+			cmd = exec.Command("kubectl", "get", "crd", "environmenttemplates.ephemeral.ephemeralenv.io")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "EnvironmentTemplate CRD should exist")
+		})
+
+		It("should reconcile EnvironmentTemplate when created", func() {
+			projectDir, err := utils.GetProjectDir()
+			Expect(err).NotTo(HaveOccurred())
+			samplePath := filepath.Join(projectDir, "config", "samples", "ephemeral_v1alpha1_environmenttemplate.yaml")
+			// Sample file references namespace ephemeral-system; ensure it exists
+			By("creating namespace ephemeral-system for sample")
+			cmd := exec.Command("kubectl", "create", "namespace", "ephemeral-system")
+			_, _ = utils.Run(cmd) // ignore error if already exists
+			By("applying EnvironmentTemplate sample")
+			cmd = exec.Command("kubectl", "apply", "-f", samplePath)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to apply EnvironmentTemplate sample")
+			defer func() {
+				cmd := exec.Command("kubectl", "delete", "-f", samplePath, "--ignore-not-found", "--wait=false")
+				_, _ = utils.Run(cmd)
+			}()
+
+			By("waiting for EnvironmentTemplate to be listed")
+			Eventually(func() error {
+				cmd := exec.Command("kubectl", "get", "environmenttemplates.ephemeral.ephemeralenv.io", "-A", "--no-headers")
+				out, err := utils.Run(cmd)
+				if err != nil {
+					return err
+				}
+				// kubectl --no-headers returns "namespace   name   displayName"; no literal "environmenttemplate"
+				if strings.TrimSpace(out) == "" {
+					return fmt.Errorf("no EnvironmentTemplate listed yet (empty output)")
+				}
+				return nil
+			}).Should(Succeed())
+		})
+	})
+})
+
 // serviceAccountToken returns a token for the specified service account in the given namespace.
 // It uses the Kubernetes TokenRequest API to generate a token by directly sending a request
 // and parsing the resulting token from the API response.
