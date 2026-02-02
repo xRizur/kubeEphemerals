@@ -20,6 +20,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -247,6 +248,8 @@ func main() {
 		RestConfig:          restConfig,
 		KubeconfigServerURL: os.Getenv("KUBECONFIG_SERVER_URL"),
 		OperatorNamespace:   operatorNS,
+		UnsafeDevMode:       os.Getenv("UNSAFE_DEV_MODE") == "true" || os.Getenv("UNSAFE_DEV_MODE") == "1",
+		AdminUser:           getEnvOrDefault("ADMIN_USER", "admin"),
 	}
 
 	uiServer, err := ui.NewServer(uiConfig, mgr.GetClient(), kubeClient)
@@ -266,4 +269,11 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func getEnvOrDefault(key, defaultVal string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return defaultVal
 }

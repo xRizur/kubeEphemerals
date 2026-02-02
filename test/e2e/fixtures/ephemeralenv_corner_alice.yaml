@@ -1,0 +1,16 @@
+# EphemeralEnv for e2e corner case: owner isolation (alice).
+apiVersion: ephemeral.ephemeralenv.io/v1alpha1
+kind: EphemeralEnv
+metadata:
+  name: e2e-corner-alice
+  namespace: default
+spec:
+  owner: alice
+  ttl: "1h"
+  isolation: true
+  gateway:
+    name: main-gateway
+    namespace: default
+    domainPrefix: e2e-corner-alice
+    serviceName: placeholder
+    targetPort: 80

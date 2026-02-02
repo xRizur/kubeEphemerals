@@ -62,8 +62,10 @@ var _ = Describe("UI Server", func() {
 			WithStatusSubresource(&ephemeralv1alpha1.EphemeralEnv{}, &ephemeralv1alpha1.EnvironmentTemplate{}).
 			Build()
 
-		// Create server
+		// Create server with dev auth so tests don't need X-Forwarded-User
 		cfg := DefaultConfig()
+		cfg.UnsafeDevMode = true
+		cfg.AdminUser = "dev@local"
 		var err error
 		server, err = NewServer(cfg, fakeClient, nil)
 		Expect(err).NotTo(HaveOccurred())

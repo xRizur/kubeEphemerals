@@ -75,6 +75,17 @@ var _ = Describe("Manager", Ordered, func() {
 		cmd = exec.Command("make", "deploy", fmt.Sprintf("IMG=%s", managerImage))
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred(), "Failed to deploy the controller-manager")
+
+		By("patching deployment to enable UNSAFE_DEV_MODE for UI (e2e accepts requests without X-Forwarded-User)")
+		cmd = exec.Command("kubectl", "set", "env", "deployment/ephemeral-operator-controller-manager",
+			"UNSAFE_DEV_MODE=true", "-n", namespace, "--overwrite")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Failed to set UNSAFE_DEV_MODE on deployment")
+		By("waiting for deployment rollout after env patch")
+		cmd = exec.Command("kubectl", "rollout", "status", "deployment/ephemeral-operator-controller-manager",
+			"-n", namespace, "--timeout=120s")
+		_, err = utils.Run(cmd)
+		Expect(err).NotTo(HaveOccurred(), "Deployment rollout after patch failed")
 	})
 
 	// After all tests have been executed, clean up by undeploying the controller, uninstalling CRDs,
@@ -363,6 +374,181 @@ var _ = Describe("Manager", Ordered, func() {
 		})
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
+
+		Context("EphemeralEnv lifecycle and corner cases", func() {
+			const uiPortCorner = "8082"
+			const envNameAlice = "e2e-corner-alice"
+			const envNamespaceAlice = "env-e2e-corner-alice"
+
+			It("should create EphemeralEnv with owner and set namespace/status", func() {
+				projectDir, err := utils.GetProjectDir()
+				Expect(err).NotTo(HaveOccurred())
+				fixturePath := filepath.Join(projectDir, "test", "e2e", "fixtures", "ephemeralenv_corner_alice.yaml")
+				cmd := exec.Command("kubectl", "apply", "-f", fixturePath)
+				_, err = utils.Run(cmd)
+				Expect(err).NotTo(HaveOccurred())
+				defer func() {
+					exec.Command("kubectl", "delete", "-f", fixturePath, "--ignore-not-found", "--wait=false").Run()
+				}()
+
+				Eventually(func() error {
+					cmd := exec.Command("kubectl", "get", "namespace", envNamespaceAlice)
+					_, err := utils.Run(cmd)
+					return err
+				}, 2*time.Minute, time.Second).Should(Succeed())
+
+				Eventually(func() error {
+					cmd := exec.Command("kubectl", "get", "ephemeralenv", envNameAlice, "-n", "default",
+						"-o", "jsonpath={.status.activeNamespace}")
+					out, err := utils.Run(cmd)
+					if err != nil {
+						return err
+					}
+					if strings.TrimSpace(out) != envNamespaceAlice {
+						return fmt.Errorf("activeNamespace not set: %q", out)
+					}
+					return nil
+				}).Should(Succeed())
+			})
+
+			It("should list envs for alice when X-Forwarded-User is alice", func() {
+				projectDir, err := utils.GetProjectDir()
+				Expect(err).NotTo(HaveOccurred())
+				portForwardCmd := exec.Command("kubectl", "port-forward", "pod/"+controllerPodName, uiPortCorner+":"+uiPortCorner, "-n", namespace)
+				Expect(portForwardCmd.Start()).To(Succeed())
+				defer func() {
+					if portForwardCmd.Process != nil {
+						_ = portForwardCmd.Process.Kill()
+					}
+				}()
+
+				Eventually(func() error {
+					resp, err := http.Get("http://127.0.0.1:" + uiPortCorner + "/api/envs")
+					if err != nil {
+						return err
+					}
+					_ = resp.Body.Close()
+					return nil
+				}, 15*time.Second, time.Second).Should(Succeed())
+
+				req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1:"+uiPortCorner+"/api/envs", nil)
+				Expect(err).NotTo(HaveOccurred())
+				req.Header.Set("X-Forwarded-User", "alice")
+				resp, err := http.DefaultClient.Do(req)
+				Expect(err).NotTo(HaveOccurred())
+				defer resp.Body.Close()
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				body, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				var list []map[string]interface{}
+				Expect(json.Unmarshal(body, &list)).To(Succeed())
+				var found bool
+				for _, e := range list {
+					meta, _ := e["metadata"].(map[string]interface{})
+					if name, _ := meta["name"].(string); name == envNameAlice {
+						found = true
+						break
+					}
+				}
+				Expect(found).To(BeTrue(), "alice's env should be in list")
+			})
+
+			It("should return 403 when bob deletes alice's env", func() {
+				portForwardCmd := exec.Command("kubectl", "port-forward", "pod/"+controllerPodName, uiPortCorner+":"+uiPortCorner, "-n", namespace)
+				Expect(portForwardCmd.Start()).To(Succeed())
+				defer func() {
+					if portForwardCmd.Process != nil {
+						_ = portForwardCmd.Process.Kill()
+					}
+				}()
+				Eventually(func() error {
+					resp, err := http.Get("http://127.0.0.1:" + uiPortCorner + "/api/envs")
+					if err != nil {
+						return err
+					}
+					_ = resp.Body.Close()
+					return nil
+				}, 15*time.Second, time.Second).Should(Succeed())
+
+				req, err := http.NewRequest(http.MethodDelete, "http://127.0.0.1:"+uiPortCorner+"/api/envs/"+envNameAlice, nil)
+				Expect(err).NotTo(HaveOccurred())
+				req.Header.Set("X-Forwarded-User", "bob")
+				resp, err := http.DefaultClient.Do(req)
+				Expect(err).NotTo(HaveOccurred())
+				defer resp.Body.Close()
+				Expect(resp.StatusCode).To(Equal(http.StatusForbidden))
+			})
+
+			It("should return 204 when alice deletes own env", func() {
+				portForwardCmd := exec.Command("kubectl", "port-forward", "pod/"+controllerPodName, uiPortCorner+":"+uiPortCorner, "-n", namespace)
+				Expect(portForwardCmd.Start()).To(Succeed())
+				defer func() {
+					if portForwardCmd.Process != nil {
+						_ = portForwardCmd.Process.Kill()
+					}
+				}()
+				Eventually(func() error {
+					resp, err := http.Get("http://127.0.0.1:" + uiPortCorner + "/api/envs")
+					if err != nil {
+						return err
+					}
+					_ = resp.Body.Close()
+					return nil
+				}, 15*time.Second, time.Second).Should(Succeed())
+
+				req, err := http.NewRequest(http.MethodDelete, "http://127.0.0.1:"+uiPortCorner+"/api/envs/"+envNameAlice, nil)
+				Expect(err).NotTo(HaveOccurred())
+				req.Header.Set("X-Forwarded-User", "alice")
+				resp, err := http.DefaultClient.Do(req)
+				Expect(err).NotTo(HaveOccurred())
+				defer resp.Body.Close()
+				Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+			})
+
+			It("should list templates via GET /api/templates", func() {
+				portForwardCmd := exec.Command("kubectl", "port-forward", "pod/"+controllerPodName, uiPortCorner+":"+uiPortCorner, "-n", namespace)
+				Expect(portForwardCmd.Start()).To(Succeed())
+				defer func() {
+					if portForwardCmd.Process != nil {
+						_ = portForwardCmd.Process.Kill()
+					}
+				}()
+				Eventually(func() error {
+					resp, err := http.Get("http://127.0.0.1:" + uiPortCorner + "/api/templates")
+					if err != nil {
+						return err
+					}
+					_ = resp.Body.Close()
+					return nil
+				}, 15*time.Second, time.Second).Should(Succeed())
+
+				resp, err := http.Get("http://127.0.0.1:" + uiPortCorner + "/api/templates")
+				Expect(err).NotTo(HaveOccurred())
+				defer resp.Body.Close()
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			})
+
+			It("should handle invalid EphemeralEnv (missing gateway namespace)", func() {
+				projectDir, err := utils.GetProjectDir()
+				Expect(err).NotTo(HaveOccurred())
+				invalidPath := filepath.Join(projectDir, "test", "e2e", "fixtures", "ephemeralenv_invalid_gateway.yaml")
+				cmd := exec.Command("kubectl", "apply", "-f", invalidPath)
+				out, err := utils.Run(cmd)
+				if err != nil {
+					Expect(out).To(Or(ContainSubstring("error"), ContainSubstring("invalid")))
+					return
+				}
+				defer func() {
+					exec.Command("kubectl", "delete", "-f", invalidPath, "--ignore-not-found", "--wait=false").Run()
+				}()
+				Eventually(func() string {
+					cmd := exec.Command("kubectl", "get", "ephemeralenv", "e2e-invalid-gw", "-n", "default",
+						"-o", "jsonpath={.status.phase}")
+					o, _ := utils.Run(cmd)
+					return strings.TrimSpace(o)
+				}, 30*time.Second).Should(Or(Equal("Pending"), Equal("Failed"), BeEmpty()))
+			})
+		})
 
 		// TODO: Customize the e2e test suite with scenarios specific to your project.
 		// Consider applying sample/CR(s) and check their status and/or verifying

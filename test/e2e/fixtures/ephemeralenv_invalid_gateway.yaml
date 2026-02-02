@@ -1,0 +1,14 @@
+# EphemeralEnv for e2e corner case: invalid/missing gateway (stays Pending or validation error).
+apiVersion: ephemeral.ephemeralenv.io/v1alpha1
+kind: EphemeralEnv
+metadata:
+  name: e2e-invalid-gw
+  namespace: default
+spec:
+  ttl: "1h"
+  gateway:
+    name: nonexistent-gateway
+    namespace: nonexistent-namespace
+    domainPrefix: e2e-invalid
+    serviceName: placeholder
+    targetPort: 80

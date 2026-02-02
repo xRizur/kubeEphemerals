@@ -11,4 +11,10 @@ keywords:
   - environments
 maintainers:
   - name: kubeEphemerals
-    url: https://github.com/maciekmm/kubeEphemerals
+    url: https://github.com/xRizur/kubeEphemerals
+dependencies:
+  # Official chart: helm repo add oauth2-proxy https://oauth2-proxy.github.io/oauth2-proxy
+  - name: oauth2-proxy
+    version: "7.2.6"
+    repository: https://oauth2-proxy.github.io/oauth2-proxy
+    condition: auth.enabled

@@ -83,6 +83,14 @@ spec:
             - name: ADMIN_GROUP
               value: {{ .Values.config.adminGroup | quote }}
             {{- end }}
+            {{- if .Values.config.adminUser }}
+            - name: ADMIN_USER
+              value: {{ .Values.config.adminUser | quote }}
+            {{- end }}
+            {{- if .Values.auth.enabled }}
+            - name: UNSAFE_DEV_MODE
+              value: "false"
+            {{- end }}
             - name: DEFAULT_TTL
               value: {{ .Values.config.defaultTTL | default "24h" | quote }}
       volumes: []
