@@ -412,8 +412,6 @@ var _ = Describe("Manager", Ordered, func() {
 			})
 
 			It("should list envs for alice when X-Forwarded-User is alice", func() {
-				projectDir, err := utils.GetProjectDir()
-				Expect(err).NotTo(HaveOccurred())
 				portForwardCmd := exec.Command("kubectl", "port-forward", "pod/"+controllerPodName, uiPortCorner+":"+uiPortCorner, "-n", namespace)
 				Expect(portForwardCmd.Start()).To(Succeed())
 				defer func() {
