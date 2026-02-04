@@ -32,7 +32,7 @@ kubectl apply -f "${SCRIPT_DIR}/gateway.yaml"
 
 # 3. Repos + deps
 echo "[3/5] Repos – deps"
-helm repo add oauth2-proxy https://oauth2-proxy.github.io/oauth2-proxy
+helm repo add oauth2-proxy https://oauth2-proxy.github.io/manifests
 helm repo update
 helm dependency update "${REPO_ROOT}/charts/ephemeral-operator"
 
