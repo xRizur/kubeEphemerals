@@ -4,7 +4,7 @@
 
 # -- Image configuration
 image:
-  repository: ghcr.io/maciekmm/kubeephemerals/ephemeral-operator
+  repository: ghcr.io/xrizur/kubeephemerals/ephemeral-operator
   tag: latest
   pullPolicy: IfNotPresent
 

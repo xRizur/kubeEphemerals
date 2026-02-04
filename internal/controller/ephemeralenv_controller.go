@@ -38,8 +38,8 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
-	ephemeralv1alpha1 "github.com/maciekmm/kubeEphemerals/api/v1alpha1"
-	"github.com/maciekmm/kubeEphemerals/internal/helm"
+	ephemeralv1alpha1 "github.com/xrizur/kubeEphemerals/api/v1alpha1"
+	"github.com/xrizur/kubeEphemerals/internal/helm"
 )
 
 // Component status constants

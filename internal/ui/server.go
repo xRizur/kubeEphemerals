@@ -40,8 +40,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	ephemeralv1alpha1 "github.com/maciekmm/kubeEphemerals/api/v1alpha1"
-	uipkg "github.com/maciekmm/kubeEphemerals/pkg/ui"
+	ephemeralv1alpha1 "github.com/xrizur/kubeEphemerals/api/v1alpha1"
+	uipkg "github.com/xrizur/kubeEphemerals/pkg/ui"
 )
 
 //go:embed templates/*.html

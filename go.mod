@@ -1,4 +1,4 @@
-module github.com/maciekmm/kubeEphemerals
+module github.com/xrizur/kubeEphemerals
 
 go 1.25.3
 

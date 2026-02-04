@@ -7,7 +7,7 @@ domain: ephemeralenv.io
 layout:
 - go.kubebuilder.io/v4
 projectName: ephemeral-operator
-repo: github.com/maciekmm/kubeEphemerals
+repo: github.com/xrizur/kubeEphemerals
 resources:
 - api:
     crdVersion: v1
@@ -16,6 +16,6 @@ resources:
   domain: ephemeralenv.io
   group: ephemeral
   kind: EphemeralEnv
-  path: github.com/maciekmm/kubeEphemerals/api/v1alpha1
+  path: github.com/xrizur/kubeEphemerals/api/v1alpha1
   version: v1alpha1
 version: "3"

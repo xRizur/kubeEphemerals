@@ -33,7 +33,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/maciekmm/kubeEphemerals/test/utils"
+	"github.com/xrizur/kubeEphemerals/test/utils"
 )
 
 // namespace where the project is deployed in
