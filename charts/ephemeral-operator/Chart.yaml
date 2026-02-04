@@ -15,6 +15,6 @@ maintainers:
 dependencies:
   # Official chart: helm repo add oauth2-proxy https://oauth2-proxy.github.io/manifests
   - name: oauth2-proxy
-    version: "7.2.6"
+    version: "10.1.2"
     repository: https://oauth2-proxy.github.io/manifests
     condition: auth.enabled
