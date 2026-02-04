@@ -37,3 +37,9 @@ go.work.sum
 # Archives
 *.tar.gz
 *.zip
+
+# Website (Docusaurus)
+website/node_modules/
+website/build/
+website/.docusaurus/
+website/.cache/

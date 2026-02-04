@@ -1,4 +1,10 @@
 {
+    "files.exclude": {
+        "**/node_modules": true,
+        "website/build": true,
+        "website/.docusaurus": true,
+        "website/.cache": true
+    },
     "chat.tools.terminal.autoApprove": {
         "/^wsl -- ps aux \\| grep 132569$/": {
             "approve": true,
