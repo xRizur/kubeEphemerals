@@ -4,7 +4,7 @@
 
 # -- Image configuration
 image:
-  repository: ghcr.io/maciekmm/kubeephemerals/ephemeral-operator
+  repository: ghcr.io/xrizur/kubeephemerals/ephemeral-operator
   tag: latest
   pullPolicy: IfNotPresent
 
@@ -28,6 +28,8 @@ config:
   externalApiUrl: ""
   # Admin group for RBAC / dashboard access (optional). Maps to ADMIN_GROUP env.
   adminGroup: ""
+  # Admin user for UI (can list/delete all envs). Maps to ADMIN_USER env. Default "admin".
+  adminUser: ""
   # Leader election for HA
   leaderElect: true
   # Metrics bind address (use ":8443" for HTTPS, ":8080" for HTTP, "0" to disable)
@@ -55,3 +57,43 @@ serviceAccount:
 
 # -- Install CRDs (when true, chart installs CRDs from crds/; set false if you manage CRDs separately)
 installCRDs: true
+
+# -- Authentication (OAuth2 Proxy in front of UI). When enabled, chart creates auth secret and optional oauth2-proxy subchart.
+auth:
+  enabled: false
+  # htpasswd content (user:bcrypt_hash). Default: admin / password. Generate: htpasswd -nbB user password
+  htpasswd: ""
+  # When auth.enabled, set oauth2-proxy.config.existingConfig to "<release-name>-ephemeral-operator-oauth2-config"
+  # so the proxy uses the ConfigMap with correct upstream (see TESTING.md).
+  # Gateway API: HTTPRoute for platform dashboard (optional). When set, HTTPRoute points to oauth2-proxy when auth.enabled.
+  gateway:
+    name: ""
+    namespace: ""
+    hostname: "platform.local"
+
+# -- oauth2-proxy subchart (used when auth.enabled). Add repo: helm repo add oauth2-proxy https://oauth2-proxy.github.io/oauth2-proxy
+oauth2-proxy:
+  config:
+    # Use ConfigMap created by this chart (has correct upstream). Set when auth.enabled: existingConfig: "<release-name>-ephemeral-operator-oauth2-config"
+    existingConfig: ""
+    # Placeholder cookie secret (required by chart); override in production
+    cookieSecret: "CHANGEME-generate-with-openssl-rand-base64-32"
+  extraArgs:
+    set-xauthrequest: "true"
+  htpasswdFile:
+    enabled: true
+    existingSecret: "ephemeral-auth"
+  extraVolumes:
+    - name: auth
+      secret:
+        secretName: ephemeral-auth
+  extraVolumeMounts:
+    - name: auth
+      mountPath: /etc/auth
+      readOnly: true
+  # Disable OIDC when using htpasswd-only (chart may require placeholder clientID/clientSecret)
+  initContainers:
+    waitForRedis:
+      enabled: false
+  redis-ha:
+    enabled: false

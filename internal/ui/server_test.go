@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	ephemeralv1alpha1 "github.com/maciekmm/kubeEphemerals/api/v1alpha1"
+	ephemeralv1alpha1 "github.com/xrizur/kubeEphemerals/api/v1alpha1"
 )
 
 func TestUI(t *testing.T) {
@@ -62,8 +62,10 @@ var _ = Describe("UI Server", func() {
 			WithStatusSubresource(&ephemeralv1alpha1.EphemeralEnv{}, &ephemeralv1alpha1.EnvironmentTemplate{}).
 			Build()
 
-		// Create server
+		// Create server with dev auth so tests don't need X-Forwarded-User
 		cfg := DefaultConfig()
+		cfg.UnsafeDevMode = true
+		cfg.AdminUser = "dev@local"
 		var err error
 		server, err = NewServer(cfg, fakeClient, nil)
 		Expect(err).NotTo(HaveOccurred())

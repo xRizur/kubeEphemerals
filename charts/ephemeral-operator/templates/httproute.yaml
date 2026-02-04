@@ -1,0 +1,22 @@
+{{- if and .Values.auth.enabled .Values.auth.gateway.name .Values.auth.gateway.namespace }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}-platform
+  namespace: {{ .Values.auth.gateway.namespace }}
+  labels:
+    {{- include "ephemeral-operator.labels" . | nindent 4 }}
+    ephemeral.ephemeralenv.io/route-type: platform
+spec:
+  parentRefs:
+    - name: {{ .Values.auth.gateway.name }}
+      namespace: {{ .Values.auth.gateway.namespace }}
+  hostnames:
+    - {{ .Values.auth.gateway.hostname | default "platform.local" }}
+  rules:
+    - backendRefs:
+        # CRITICAL: Point to oauth2-proxy so auth runs before the app
+        - name: {{ .Release.Name }}-oauth2-proxy
+          port: 80
+          namespace: {{ include "ephemeral-operator.namespace" . }}
+{{- end }}

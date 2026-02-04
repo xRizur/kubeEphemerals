@@ -1,6 +1,6 @@
 # ephemeral-operator
 
-Kubernetes operator for **ephemeral environments**: short-lived namespaces with Helm-based deployments, NetworkPolicy isolation, and Gateway API HTTPRoute for access. Supports EnvironmentTemplate catalog and self-service kubeconfig via a built-in UI.
+Kubernetes operator for **ephemeral environments**: short-lived namespaces with Helm-based deployments, NetworkPolicy isolation, and Gateway API HTTPRoute for access. Supports EnvironmentTemplate catalog, self-service kubeconfig via a built-in UI, and **authentication & multi-tenancy** (OAuth2 Proxy / htpasswd, owner-based isolation).
 
 ## Description
 
@@ -119,7 +119,7 @@ The chart lives under `charts/ephemeral-operator/`. To ship it:
 
 ## E2E tests
 
-E2E tests require a **Kind** cluster and (optionally) **cert-manager**.
+E2E tests run on a **Kind** cluster and cover real-cluster behaviour and corner cases.
 
 - **Kind:** Create a cluster and ensure `kind` is on `PATH`. Default cluster name: `ephemeral-operator-test-e2e` (override with `KIND_CLUSTER`).
 - **Cert-manager:** Installed automatically by the suite unless `CERT_MANAGER_INSTALL_SKIP=true`.
@@ -133,10 +133,11 @@ make test-e2e
 This will:
 
 1. Build the manager image and load it into Kind.
-2. Run **Manager (Kustomize)** tests: deploy with `make deploy`, verify pod, metrics, kubeconfig.
-3. Run **Helm chart** tests: install the chart, verify pod and CRDs, create an EnvironmentTemplate and check it is reconciled.
+2. Run **Manager (Kustomize)** tests: deploy with `make deploy`, patch `UNSAFE_DEV_MODE=true` for UI, verify pod, metrics, kubeconfig self-service.
+3. Run **EphemeralEnv lifecycle and corner cases:** create EphemeralEnv with owner; list envs with `X-Forwarded-User` (owner isolation); delete as non-owner (403) and as owner (204); templates API; invalid EphemeralEnv (Pending/Failed).
+4. Run **Helm chart** tests: install the chart, verify pod and CRDs, create an EnvironmentTemplate and check it is reconciled.
 
-So both deployment methods (Kustomize and Helm) are covered by e2e.
+Both deployment methods (Kustomize and Helm) and auth/isolation corner cases are covered by e2e.
 
 ## Contributing
 

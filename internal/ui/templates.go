@@ -26,7 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	ephemeralv1alpha1 "github.com/maciekmm/kubeEphemerals/api/v1alpha1"
+	ephemeralv1alpha1 "github.com/xrizur/kubeEphemerals/api/v1alpha1"
 )
 
 // TemplateAPIResponse represents a template as returned by the API

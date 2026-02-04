@@ -29,7 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	ephemeralv1alpha1 "github.com/maciekmm/kubeEphemerals/api/v1alpha1"
+	ephemeralv1alpha1 "github.com/xrizur/kubeEphemerals/api/v1alpha1"
 )
 
 var _ = Describe("EnvironmentTemplate CRD", func() {

@@ -1,0 +1,18 @@
+{{- if .Values.auth.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}
+  namespace: {{ include "ephemeral-operator.namespace" . }}
+  labels:
+    {{- include "ephemeral-operator.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      protocol: TCP
+      targetPort: 8082
+  selector:
+    {{- include "ephemeral-operator.selectorLabels" . | nindent 4 }}
+{{- end }}

@@ -20,6 +20,7 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -39,7 +40,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	ephemeralv1alpha1 "github.com/maciekmm/kubeEphemerals/api/v1alpha1"
+	ephemeralv1alpha1 "github.com/xrizur/kubeEphemerals/api/v1alpha1"
+	uipkg "github.com/xrizur/kubeEphemerals/pkg/ui"
 )
 
 //go:embed templates/*.html
@@ -49,6 +51,9 @@ var templateFS embed.FS
 var staticFS embed.FS
 
 var log = logf.Log.WithName("ui-server")
+
+// defaultAdminUser is the fallback admin identity when Config.AdminUser is not set.
+const defaultAdminUser = "admin"
 
 // Config holds the UI server configuration
 type Config struct {
@@ -78,13 +83,18 @@ type Config struct {
 	OperatorKubeconfigConfigMapName string
 	// OperatorKubeconfigConfigMapKey is the ConfigMap data key for the server URL (default below).
 	OperatorKubeconfigConfigMapKey string
+	// UnsafeDevMode when true allows requests without X-Forwarded-User (user becomes "dev@local").
+	// Use only for local development; leave false when behind OAuth2 Proxy.
+	UnsafeDevMode bool
+	// AdminUser is the user identity that can list/delete all environments (e.g. "admin").
+	AdminUser string
 }
 
 // DefaultConfig returns a default configuration
 func DefaultConfig() Config {
 	return Config{
 		PlatformDomain: "platform.local",
-		AdminPrefix:    "admin",
+		AdminPrefix:    defaultAdminUser,
 		BaseDomain:     "preview.example.com",
 		ListenAddr:     ":8080",
 	}
@@ -95,6 +105,7 @@ type Server struct {
 	config           Config
 	client           client.Client
 	kubeClient       kubernetes.Interface
+	envHandler       *uipkg.EnvHandler
 	router           *mux.Router
 	templates        *template.Template
 	templateRegistry *TemplateRegistry
@@ -139,6 +150,16 @@ func NewServer(cfg Config, c client.Client, kubeClient kubernetes.Interface) (*S
 		}
 	}
 	s.templates = tmpl
+
+	adminUser := cfg.AdminUser
+	if adminUser == "" {
+		adminUser = defaultAdminUser
+	}
+	s.envHandler = &uipkg.EnvHandler{
+		Client:           c,
+		AdminUser:        adminUser,
+		DefaultNamespace: "default",
+	}
 
 	// Setup router
 	s.setupRouter()
@@ -193,8 +214,11 @@ func (s *Server) setupRouter() {
 	// Static files
 	s.router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
-	// Platform dashboard routes (global view)
+	authMiddleware := uipkg.AuthMiddleware(s.config.UnsafeDevMode)
+
+	// Platform dashboard routes (global view) - behind auth
 	platformRouter := s.router.Host(s.config.PlatformDomain).Subrouter()
+	platformRouter.Use(authMiddleware)
 	platformRouter.HandleFunc("/", s.handleGlobalDashboard).Methods("GET")
 	platformRouter.HandleFunc("/api/envs", s.handleListEnvs).Methods("GET")
 	platformRouter.HandleFunc("/api/envs", s.handleCreateEnv).Methods("POST")
@@ -202,10 +226,10 @@ func (s *Server) setupRouter() {
 	platformRouter.HandleFunc("/api/envs/{name}", s.handleGetEnv).Methods("GET")
 	platformRouter.HandleFunc("/api/envs/{name}/kubeconfig", s.handleKubeconfigByName).Methods("GET")
 
-	// Admin dashboard routes (per-environment view)
-	// Matches: admin.pr-123.preview.example.com or admin-pr-123.preview.example.com
+	// Admin dashboard routes (per-environment view) - behind auth
 	adminPattern := fmt.Sprintf("%s.{env:[a-z0-9-]+}.%s", s.config.AdminPrefix, s.config.BaseDomain)
 	adminRouter := s.router.Host(adminPattern).Subrouter()
+	adminRouter.Use(authMiddleware)
 	adminRouter.Use(s.envContextMiddleware)
 	adminRouter.HandleFunc("/", s.handleEnvDashboard).Methods("GET")
 	adminRouter.HandleFunc("/api/status", s.handleEnvStatus).Methods("GET")
@@ -215,18 +239,19 @@ func (s *Server) setupRouter() {
 	adminRouter.HandleFunc("/api/logs/{pod}/stream", s.handlePodLogsStream)
 	adminRouter.HandleFunc("/api/extend-ttl", s.handleExtendTTL).Methods("POST")
 
-	// Fallback - also accept requests without proper host header for development
-	s.router.HandleFunc("/", s.handleGlobalDashboard).Methods("GET")
-	s.router.HandleFunc("/env/{name}", s.handleEnvDashboardByName).Methods("GET")
-	s.router.HandleFunc("/api/envs", s.handleListEnvs).Methods("GET")
-	s.router.HandleFunc("/api/envs", s.handleCreateEnv).Methods("POST")
-	s.router.HandleFunc("/api/envs/{name}", s.handleDeleteEnv).Methods("DELETE")
-	s.router.HandleFunc("/api/envs/{name}", s.handleGetEnv).Methods("GET")
-	s.router.HandleFunc("/api/envs/{name}/pods", s.handleEnvPodsByName).Methods("GET")
-	s.router.HandleFunc("/api/envs/{name}/pods/{pod}/logs", s.handlePodLogsByName).Methods("GET")
-	s.router.HandleFunc("/api/envs/{name}/pods/{pod}/logs/stream", s.handlePodLogsStreamByName)
-	s.router.HandleFunc("/api/envs/{name}/extend-ttl", s.handleExtendTTLByName).Methods("POST")
-	s.router.HandleFunc("/api/envs/{name}/kubeconfig", s.handleKubeconfigByName).Methods("GET")
+	// Fallback - also accept requests without proper host header (development); wrap with auth
+	wrap := func(h http.HandlerFunc) http.Handler { return authMiddleware(h) }
+	s.router.Handle("/", wrap(s.handleGlobalDashboard)).Methods("GET")
+	s.router.Handle("/env/{name}", wrap(s.handleEnvDashboardByName)).Methods("GET")
+	s.router.Handle("/api/envs", wrap(s.handleListEnvs)).Methods("GET")
+	s.router.Handle("/api/envs", wrap(s.handleCreateEnv)).Methods("POST")
+	s.router.Handle("/api/envs/{name}", wrap(s.handleDeleteEnv)).Methods("DELETE")
+	s.router.Handle("/api/envs/{name}", wrap(s.handleGetEnv)).Methods("GET")
+	s.router.Handle("/api/envs/{name}/pods", wrap(s.handleEnvPodsByName)).Methods("GET")
+	s.router.Handle("/api/envs/{name}/pods/{pod}/logs", wrap(s.handlePodLogsByName)).Methods("GET")
+	s.router.Handle("/api/envs/{name}/pods/{pod}/logs/stream", wrap(s.handlePodLogsStream))
+	s.router.Handle("/api/envs/{name}/extend-ttl", wrap(s.handleExtendTTLByName)).Methods("POST")
+	s.router.Handle("/api/envs/{name}/kubeconfig", wrap(s.handleKubeconfigByName)).Methods("GET")
 
 	// Templates API - Service Catalog
 	s.router.HandleFunc("/api/templates", s.handleListTemplates).Methods("GET")
@@ -294,20 +319,39 @@ func getEnvFromContext(ctx context.Context) string {
 	return ""
 }
 
+// getEnvWithAccessCheck loads the EphemeralEnv by name and verifies the current user can access it.
+// If not found or forbidden, writes the appropriate response and returns (nil, false).
+func (s *Server) getEnvWithAccessCheck(w http.ResponseWriter, r *http.Request, name string) (*ephemeralv1alpha1.EphemeralEnv, bool) {
+	env := &ephemeralv1alpha1.EphemeralEnv{}
+	if err := s.client.Get(r.Context(), client.ObjectKey{Name: name, Namespace: "default"}, env); err != nil {
+		s.jsonError(w, "Environment not found", http.StatusNotFound)
+		return nil, false
+	}
+	adminUser := s.config.AdminUser
+	if adminUser == "" {
+		adminUser = defaultAdminUser
+	}
+	if !uipkg.CanAccessEnv(env.Spec.Owner, uipkg.UserFromContext(r.Context()), adminUser) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return nil, false
+	}
+	return env, true
+}
+
 // =============================================================================
 // Global Dashboard Handlers
 // =============================================================================
 
 func (s *Server) handleGlobalDashboard(w http.ResponseWriter, r *http.Request) {
-	envList := &ephemeralv1alpha1.EphemeralEnvList{}
-	if err := s.client.List(r.Context(), envList); err != nil {
+	envs, err := s.envHandler.ListEnvs(r.Context())
+	if err != nil {
 		http.Error(w, "Failed to list environments", http.StatusInternalServerError)
 		return
 	}
 
 	data := map[string]any{
 		"Title":        "Ephemeral Environments",
-		"Environments": envList.Items,
+		"Environments": envs,
 		"Config":       s.config,
 	}
 
@@ -315,13 +359,13 @@ func (s *Server) handleGlobalDashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListEnvs(w http.ResponseWriter, r *http.Request) {
-	envList := &ephemeralv1alpha1.EphemeralEnvList{}
-	if err := s.client.List(r.Context(), envList); err != nil {
+	envs, err := s.envHandler.ListEnvs(r.Context())
+	if err != nil {
 		s.jsonError(w, "Failed to list environments", http.StatusInternalServerError)
 		return
 	}
 
-	s.jsonResponse(w, envList.Items)
+	s.jsonResponse(w, envs)
 }
 
 func (s *Server) handleCreateEnv(w http.ResponseWriter, r *http.Request) {
@@ -335,7 +379,7 @@ func (s *Server) handleCreateEnv(w http.ResponseWriter, r *http.Request) {
 		env.Namespace = "default"
 	}
 
-	if err := s.client.Create(r.Context(), &env); err != nil {
+	if err := s.envHandler.CreateEnv(r.Context(), &env); err != nil {
 		s.jsonError(w, fmt.Sprintf("Failed to create environment: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -348,11 +392,11 @@ func (s *Server) handleDeleteEnv(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	name := vars["name"]
 
-	env := &ephemeralv1alpha1.EphemeralEnv{}
-	env.Name = name
-	env.Namespace = "default" // TODO: support multiple namespaces
-
-	if err := s.client.Delete(r.Context(), env); err != nil {
+	if err := s.envHandler.DeleteEnv(r.Context(), name); err != nil {
+		if errors.Is(err, uipkg.ErrForbidden) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
 		s.jsonError(w, fmt.Sprintf("Failed to delete environment: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -367,6 +411,14 @@ func (s *Server) handleGetEnv(w http.ResponseWriter, r *http.Request) {
 	env := &ephemeralv1alpha1.EphemeralEnv{}
 	if err := s.client.Get(r.Context(), client.ObjectKey{Name: name, Namespace: "default"}, env); err != nil {
 		s.jsonError(w, "Environment not found", http.StatusNotFound)
+		return
+	}
+	adminUser := s.config.AdminUser
+	if adminUser == "" {
+		adminUser = defaultAdminUser
+	}
+	if !uipkg.CanAccessEnv(env.Spec.Owner, uipkg.UserFromContext(r.Context()), adminUser) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -433,9 +485,8 @@ func (s *Server) handleKubeconfigByName(w http.ResponseWriter, r *http.Request) 
 	vars := mux.Vars(r)
 	name := vars["name"]
 
-	env := &ephemeralv1alpha1.EphemeralEnv{}
-	if err := s.client.Get(r.Context(), client.ObjectKey{Name: name, Namespace: "default"}, env); err != nil {
-		s.jsonError(w, "Environment not found", http.StatusNotFound)
+	env, ok := s.getEnvWithAccessCheck(w, r, name)
+	if !ok {
 		return
 	}
 
@@ -504,9 +555,8 @@ func (s *Server) handleEnvDashboardByName(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) renderEnvDashboard(w http.ResponseWriter, r *http.Request, envName string) {
-	env := &ephemeralv1alpha1.EphemeralEnv{}
-	if err := s.client.Get(r.Context(), client.ObjectKey{Name: envName, Namespace: "default"}, env); err != nil {
-		http.Error(w, "Environment not found", http.StatusNotFound)
+	env, ok := s.getEnvWithAccessCheck(w, r, envName)
+	if !ok {
 		return
 	}
 
@@ -532,9 +582,8 @@ func (s *Server) handleEnvStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getEnvStatus(w http.ResponseWriter, r *http.Request, envName string) {
-	env := &ephemeralv1alpha1.EphemeralEnv{}
-	if err := s.client.Get(r.Context(), client.ObjectKey{Name: envName, Namespace: "default"}, env); err != nil {
-		s.jsonError(w, "Environment not found", http.StatusNotFound)
+	env, ok := s.getEnvWithAccessCheck(w, r, envName)
+	if !ok {
 		return
 	}
 
@@ -567,9 +616,8 @@ func (s *Server) handleEnvPodsByName(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getEnvPods(w http.ResponseWriter, r *http.Request, envName string) {
-	env := &ephemeralv1alpha1.EphemeralEnv{}
-	if err := s.client.Get(r.Context(), client.ObjectKey{Name: envName, Namespace: "default"}, env); err != nil {
-		s.jsonError(w, "Environment not found", http.StatusNotFound)
+	env, ok := s.getEnvWithAccessCheck(w, r, envName)
+	if !ok {
 		return
 	}
 
@@ -601,9 +649,8 @@ func (s *Server) handleRestartPod(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	podName := vars["pod"]
 
-	env := &ephemeralv1alpha1.EphemeralEnv{}
-	if err := s.client.Get(r.Context(), client.ObjectKey{Name: envName, Namespace: "default"}, env); err != nil {
-		s.jsonError(w, "Environment not found", http.StatusNotFound)
+	env, ok := s.getEnvWithAccessCheck(w, r, envName)
+	if !ok {
 		return
 	}
 
@@ -635,9 +682,8 @@ func (s *Server) handlePodLogsByName(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getPodLogs(w http.ResponseWriter, r *http.Request, envName, podName string) {
-	env := &ephemeralv1alpha1.EphemeralEnv{}
-	if err := s.client.Get(r.Context(), client.ObjectKey{Name: envName, Namespace: "default"}, env); err != nil {
-		s.jsonError(w, "Environment not found", http.StatusNotFound)
+	env, ok := s.getEnvWithAccessCheck(w, r, envName)
+	if !ok {
 		return
 	}
 
@@ -670,17 +716,9 @@ func (s *Server) handlePodLogsStream(w http.ResponseWriter, r *http.Request) {
 	s.streamPodLogs(w, r, envName, podName)
 }
 
-func (s *Server) handlePodLogsStreamByName(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	envName := vars["name"]
-	podName := vars["pod"]
-	s.streamPodLogs(w, r, envName, podName)
-}
-
 func (s *Server) streamPodLogs(w http.ResponseWriter, r *http.Request, envName, podName string) {
-	env := &ephemeralv1alpha1.EphemeralEnv{}
-	if err := s.client.Get(r.Context(), client.ObjectKey{Name: envName, Namespace: "default"}, env); err != nil {
-		http.Error(w, "Environment not found", http.StatusNotFound)
+	env, ok := s.getEnvWithAccessCheck(w, r, envName)
+	if !ok {
 		return
 	}
 
@@ -753,9 +791,8 @@ func (s *Server) extendTTL(w http.ResponseWriter, r *http.Request, envName strin
 		return
 	}
 
-	env := &ephemeralv1alpha1.EphemeralEnv{}
-	if err := s.client.Get(r.Context(), client.ObjectKey{Name: envName, Namespace: "default"}, env); err != nil {
-		s.jsonError(w, "Environment not found", http.StatusNotFound)
+	env, ok := s.getEnvWithAccessCheck(w, r, envName)
+	if !ok {
 		return
 	}
 

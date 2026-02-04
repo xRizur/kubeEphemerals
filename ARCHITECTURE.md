@@ -1,7 +1,7 @@
 # Ephemeral Environment Operator - Architecture Document
 
 > **Source of Truth** for the entire development process.  
-> Last Updated: January 30, 2026
+> Last Updated: February 2, 2026
 
 ---
 
@@ -2064,7 +2064,11 @@ ephemeral-operator/
 │   └── helm/
 │       └── client.go                  # Helm client wrapper
 ├── test/
-│   └── e2e/                           # End-to-end tests
+│   ├── e2e/                           # End-to-end tests (Kind cluster)
+│   │   ├── e2e_suite_test.go          # Suite setup (build image, load Kind)
+│   │   ├── e2e_test.go                # Manager + Helm + corner cases
+│   │   └── fixtures/                  # EphemeralEnv YAML for e2e
+│   └── utils/                         # Kind, CertManager, Run helpers
 ├── Dockerfile
 ├── Makefile
 ├── go.mod
@@ -2183,6 +2187,7 @@ After starting the operator, open: **http://localhost:8082**
 | 6 | Gateway API & HTTPRoute | ✅ Complete |
 | 7 | Web UI Dashboard | ✅ Complete |
 | 8 | Service Catalog (Templates) | ✅ Complete |
+| 12 | Authentication & Multi-tenancy | ✅ Complete |
 
 ### In Progress 🚧
 
@@ -2216,6 +2221,7 @@ wsl bash -ic "cd /mnt/c/Users/<user>/github/kubeEphemerals && go test -coverprof
 | Test File | Description | Test Count |
 |-----------|-------------|------------|
 | `internal/controller/ephemeralenv_controller_test.go` | Controller reconciliation tests with envtest | 50+ tests |
+| `test/e2e/e2e_test.go` | E2E on Kind: Manager, Helm, EphemeralEnv lifecycle and corner cases | Manager + Helm + corner |
 | `internal/controller/environmenttemplate_controller_test.go` | Template controller tests | ~10 tests |
 | `internal/ui/server_test.go` | UI API handlers tests | 47+ tests |
 | `api/v1alpha1/ephemeralenv_types_test.go` | CRD validation and defaults | ~10 tests |

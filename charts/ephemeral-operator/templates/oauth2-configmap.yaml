@@ -1,0 +1,16 @@
+{{- if .Values.auth.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ephemeral-operator.fullname" . }}-oauth2-config
+  namespace: {{ include "ephemeral-operator.namespace" . }}
+  labels:
+    {{- include "ephemeral-operator.labels" . | nindent 4 }}
+data:
+  oauth2_proxy.cfg: |
+    provider = "htpasswd"
+    htpasswd_file = "/etc/auth/auth"
+    upstreams = [ "http://{{ include "ephemeral-operator.fullname" . }}:80" ]
+    pass_authorization_header = true
+    set_xauthrequest = true
+{{- end }}

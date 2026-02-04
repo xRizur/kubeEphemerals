@@ -1,6 +1,6 @@
 # ephemeral-operator - AI Agent Guide
 
-> **Last Updated:** January 30, 2026
+> **Last Updated:** February 2, 2026
 
 ## Development Environment
 
@@ -63,7 +63,9 @@ wsl bash -ic "cd /mnt/c/Users/<user>/github/kubeEphemerals && go test -coverprof
 
 - **Controller tests:** `internal/controller/*_test.go` - Tests reconciliation logic with envtest
 - **UI tests:** `internal/ui/*_test.go` - Tests API handlers and HTTP responses
+- **Auth/isolation tests:** `pkg/ui/*_test.go` - Tests middleware and owner-based isolation
 - **Type tests:** `api/v1alpha1/*_test.go` - Tests CRD validation and defaults
+- **E2E tests:** `test/e2e/*_test.go` - Tests on real Kind cluster (lifecycle, UI auth, corner cases)
 - **Target coverage:** >80% for business logic
 
 ---
@@ -82,6 +84,7 @@ wsl bash -ic "cd /mnt/c/Users/<user>/github/kubeEphemerals && go test -coverprof
 | 6 | Gateway API & HTTPRoute | ✅ Complete |
 | 7 | Web UI Dashboard | ✅ Complete |
 | 8 | Service Catalog (Templates) | ✅ Complete |
+| 12 | Authentication & Multi-tenancy | ✅ Complete |
 
 ### In Progress 🚧
 
@@ -272,7 +275,9 @@ Always use `kubebuilder create api` and `kubebuilder create webhook` to scaffold
 
 ### E2E Tests Require an Isolated Kind Cluster
 The e2e tests are designed to validate the solution in an isolated environment (similar to GitHub Actions CI).
-Ensure you run them against a dedicated [Kind](https://kind.sigs.k8s.io/) cluster (not your “real” dev/prod cluster).
+Ensure you run them against a dedicated [Kind](https://kind.sigs.k8s.io/) cluster (not your “real” dev/prod cluster). 
+
+**E2E coverage:** Manager (pod, metrics, kubeconfig; EphemeralEnv lifecycle and corner cases: owner isolation, list/delete 403/204, templates API, invalid CR); Helm (install, CRDs, EnvironmentTemplate). Run: `make test-e2e`. Manager suite patches `UNSAFE_DEV_MODE=true` for UI tests.
 
 ## After Making Changes
 

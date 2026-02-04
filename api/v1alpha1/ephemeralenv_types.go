@@ -23,6 +23,11 @@ import (
 
 // EphemeralEnvSpec defines the desired state of EphemeralEnv
 type EphemeralEnvSpec struct {
+	// Owner is the user identity that owns this environment (from X-Forwarded-User / auth).
+	// Used for multi-tenant isolation: list/delete are filtered by owner unless user is admin.
+	// +optional
+	Owner string `json:"owner,omitempty"`
+
 	// Helm contains the Helm chart deployment configuration for single-chart deployments.
 	// DEPRECATED: Use Components for new deployments. This field is kept for backward compatibility.
 	// When both Helm and Components are specified, Components takes precedence.

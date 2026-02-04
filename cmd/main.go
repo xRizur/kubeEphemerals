@@ -20,6 +20,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -38,10 +39,10 @@ import (
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayv1beta1 "sigs.k8s.io/gateway-api/apis/v1beta1"
 
-	ephemeralv1alpha1 "github.com/maciekmm/kubeEphemerals/api/v1alpha1"
-	"github.com/maciekmm/kubeEphemerals/internal/controller"
-	"github.com/maciekmm/kubeEphemerals/internal/helm"
-	"github.com/maciekmm/kubeEphemerals/internal/ui"
+	ephemeralv1alpha1 "github.com/xrizur/kubeEphemerals/api/v1alpha1"
+	"github.com/xrizur/kubeEphemerals/internal/controller"
+	"github.com/xrizur/kubeEphemerals/internal/helm"
+	"github.com/xrizur/kubeEphemerals/internal/ui"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -247,6 +248,8 @@ func main() {
 		RestConfig:          restConfig,
 		KubeconfigServerURL: os.Getenv("KUBECONFIG_SERVER_URL"),
 		OperatorNamespace:   operatorNS,
+		UnsafeDevMode:       os.Getenv("UNSAFE_DEV_MODE") == "true" || os.Getenv("UNSAFE_DEV_MODE") == "1",
+		AdminUser:           getEnvOrDefault("ADMIN_USER", "admin"),
 	}
 
 	uiServer, err := ui.NewServer(uiConfig, mgr.GetClient(), kubeClient)
@@ -266,4 +269,11 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func getEnvOrDefault(key, defaultVal string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return defaultVal
 }
