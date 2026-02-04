@@ -48,10 +48,10 @@ func minimalGatewaySpec() ephemeralv1alpha1.GatewaySpec {
 
 var _ = Describe("ListEnvs isolation", func() {
 	var (
-		scheme   *runtime.Scheme
+		scheme     *runtime.Scheme
 		fakeClient client.Client
-		handler  *EnvHandler
-		ctx      context.Context
+		handler    *EnvHandler
+		ctx        context.Context
 	)
 
 	BeforeEach(func() {
@@ -124,10 +124,10 @@ var _ = Describe("ListEnvs isolation", func() {
 
 var _ = Describe("DeleteEnv and CreateEnv", func() {
 	var (
-		scheme      *runtime.Scheme
-		fakeClient  client.Client
-		handler     *EnvHandler
-		ctx         context.Context
+		scheme     *runtime.Scheme
+		fakeClient client.Client
+		handler    *EnvHandler
+		ctx        context.Context
 	)
 
 	BeforeEach(func() {

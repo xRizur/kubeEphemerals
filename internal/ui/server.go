@@ -52,6 +52,9 @@ var staticFS embed.FS
 
 var log = logf.Log.WithName("ui-server")
 
+// defaultAdminUser is the fallback admin identity when Config.AdminUser is not set.
+const defaultAdminUser = "admin"
+
 // Config holds the UI server configuration
 type Config struct {
 	// PlatformDomain is the domain for the global dashboard (e.g., "platform.local")
@@ -91,7 +94,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		PlatformDomain: "platform.local",
-		AdminPrefix:    "admin",
+		AdminPrefix:    defaultAdminUser,
 		BaseDomain:     "preview.example.com",
 		ListenAddr:     ":8080",
 	}
@@ -150,7 +153,7 @@ func NewServer(cfg Config, c client.Client, kubeClient kubernetes.Interface) (*S
 
 	adminUser := cfg.AdminUser
 	if adminUser == "" {
-		adminUser = "admin"
+		adminUser = defaultAdminUser
 	}
 	s.envHandler = &uipkg.EnvHandler{
 		Client:           c,
@@ -212,10 +215,6 @@ func (s *Server) setupRouter() {
 	s.router.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
 	authMiddleware := uipkg.AuthMiddleware(s.config.UnsafeDevMode)
-	adminUser := s.config.AdminUser
-	if adminUser == "" {
-		adminUser = "admin"
-	}
 
 	// Platform dashboard routes (global view) - behind auth
 	platformRouter := s.router.Host(s.config.PlatformDomain).Subrouter()
@@ -330,7 +329,7 @@ func (s *Server) getEnvWithAccessCheck(w http.ResponseWriter, r *http.Request, n
 	}
 	adminUser := s.config.AdminUser
 	if adminUser == "" {
-		adminUser = "admin"
+		adminUser = defaultAdminUser
 	}
 	if !uipkg.CanAccessEnv(env.Spec.Owner, uipkg.UserFromContext(r.Context()), adminUser) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
@@ -416,7 +415,7 @@ func (s *Server) handleGetEnv(w http.ResponseWriter, r *http.Request) {
 	}
 	adminUser := s.config.AdminUser
 	if adminUser == "" {
-		adminUser = "admin"
+		adminUser = defaultAdminUser
 	}
 	if !uipkg.CanAccessEnv(env.Spec.Owner, uipkg.UserFromContext(r.Context()), adminUser) {
 		http.Error(w, "Forbidden", http.StatusForbidden)
@@ -713,13 +712,6 @@ func (s *Server) getPodLogs(w http.ResponseWriter, r *http.Request, envName, pod
 func (s *Server) handlePodLogsStream(w http.ResponseWriter, r *http.Request) {
 	envName := getEnvFromContext(r.Context())
 	vars := mux.Vars(r)
-	podName := vars["pod"]
-	s.streamPodLogs(w, r, envName, podName)
-}
-
-func (s *Server) handlePodLogsStreamByName(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	envName := vars["name"]
 	podName := vars["pod"]
 	s.streamPodLogs(w, r, envName, podName)
 }
